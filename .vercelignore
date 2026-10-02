@@ -1,0 +1,8 @@
+test/
+scripts/
+docs/
+gas/
+.claude/
+.screenshots/
+*.md
+!README.md
