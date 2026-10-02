@@ -264,7 +264,7 @@ textarea { resize: vertical; }
   padding: 12px;
   margin: 8px 0 12px;
 }
-.message-list { padding-left: 1.4em; }
+.message-list { list-style: none; padding-left: 0; } /* 「1通目」の文言で番号を示すため、リストの番号は出さない */
 .message-list > li { margin-bottom: 16px; }
 .message-meta { color: var(--muted); font-size: 0.9rem; }
 
@@ -308,3 +308,34 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* ---- 結果画面のステップ（① トーク → ② スレッド → ③ 保存） ---- */
+.step-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 16px 16px;
+  margin: 16px 0 24px;
+}
+.step-box > h2 { margin-top: 12px; }
+
+/* 編集欄の折りたたみ。開閉の状態は ▸／▾ の記号と文言の両方で示す */
+.edit-details {
+  margin-top: 16px;
+  border-top: 1px solid #d1d5db;
+  padding-top: 8px;
+}
+.edit-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--primary);
+  list-style: none;
+}
+.edit-details > summary::-webkit-details-marker { display: none; }
+.edit-details > summary::before { content: "▸"; }
+.edit-details[open] > summary::before { content: "▾"; }
+.edit-details[open] > summary { margin-bottom: 8px; }

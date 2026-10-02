@@ -192,6 +192,8 @@ function handleAnalyze_(body) {
     event: { date: '', startTime: '', endTime: '', place: '', deadline: '', performers: '' },
     imageText: '',
     flyerWeekday: '',
+    dateUncertain: false,
+    dateNote: '',
     category: '',
     tags: [],
     legislatorTags: [],
@@ -246,6 +248,8 @@ function handleAnalyze_(body) {
   result.event = gemini.event;
   result.imageText = gemini.imageText;
   result.flyerWeekday = gemini.flyerWeekday;
+  result.dateUncertain = gemini.dateUncertain;
+  result.dateNote = gemini.dateNote;
 
   if (!useJev) {
     result.kind = gemini.kind;
@@ -595,7 +599,7 @@ function buildGeminiAnalyzeRequest_(options) {
   var kindKeys = APP_CONFIG.kinds.map(function (k) { return k.key; });
   var properties = {
     title: { type: 'STRING', description: '投稿のタイトル。30文字以内。【】は付けない' },
-    summary: { type: 'STRING', description: '概略。4〜6行。各行は短く。出典や「詳細はスレッドで」は書かない' },
+    summary: { type: 'STRING', description: '概略。「・」で始まる箇条書きを2〜5行。1行に1つの要点を、短い1文で。出典や「詳細はスレッドで」は書かない' },
     eventDate: { type: 'STRING', description: '開催日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     startTime: { type: 'STRING', description: '開始時刻。HH:MM（24時間制）。無ければ空文字' },
     endTime: { type: 'STRING', description: '終了時刻。HH:MM（24時間制）。無ければ空文字' },
@@ -603,9 +607,11 @@ function buildGeminiAnalyzeRequest_(options) {
     deadline: { type: 'STRING', description: '申込締切日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     performers: { type: 'STRING', description: '出演者・登壇者。複数なら「、」区切り。無ければ空文字' },
     imageText: { type: 'STRING', description: '画像がある場合、画像内の文字を読みやすく整えた文章。事実は変えない。画像が無ければ空文字' },
-    flyerWeekday: { type: 'STRING', description: '画像やチラシに書かれている開催日の曜日（日・月・火・水・木・金・土のどれか1文字）。書かれていなければ空文字' }
+    flyerWeekday: { type: 'STRING', description: '画像やチラシに書かれている開催日の曜日（日・月・火・水・木・金・土のどれか1文字）。書かれていなければ空文字' },
+    dateUncertain: { type: 'BOOLEAN', description: '開催日時が確定していない（「AまたはB」「いずれか」「未定」「調整中」など）なら true。そのとき eventDate・startTime・endTime は空文字にする' },
+    dateNote: { type: 'STRING', description: 'dateUncertain が true のとき、原文に書かれた日時の候補や状況をそのまま短く（例: 10月7日または10月8日、21:30〜）。それ以外は空文字' }
   };
-  var required = ['title', 'summary', 'eventDate', 'startTime', 'endTime', 'place', 'deadline', 'performers', 'imageText', 'flyerWeekday'];
+  var required = ['title', 'summary', 'eventDate', 'startTime', 'endTime', 'place', 'deadline', 'performers', 'imageText', 'flyerWeekday', 'dateUncertain', 'dateNote'];
 
   if (options.classify) {
     properties.kind = { type: 'STRING', enum: kindKeys, description: '種別' };
@@ -626,7 +632,8 @@ function buildGeminiAnalyzeRequest_(options) {
     '入力の内容だけを根拠にし、書かれていないことを補ったり推測で足したりしないでください。',
     '日付は今日（' + options.today + '）を基準に、年を補って YYYY-MM-DD の絶対日付にしてください。「明日」などの相対表現は使わないでください。',
     '曜日は計算しないでください。画像やチラシに曜日が書かれている場合だけ、書かれている曜日を flyerWeekday に入れてください。',
-    '概略は本文だけを書きます。出典（「Slackからの転載です」等）や「詳細はスレッドで」は書かないでください。',
+    '日時が確定していない場合（候補が複数ある、未定、調整中など）は、日付を1つに決めつけず、dateUncertain を true にして eventDate・startTime・endTime を空にしてください。',
+    '概略は「・」で始まる箇条書きにし、要点だけを簡潔に書きます。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドで」は書かないでください。',
     options.classify ? '種別の定義:\n' + kindGuide : ''
   ].join('\n');
 
@@ -698,24 +705,48 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
   var time = function (v) { return /^([01]?\d|2[0-3]):[0-5]\d$/.test(str(v)) ? str(v) : ''; };
   var kindKey = str(json.kind);
   var weekday = str(json.flyerWeekday).match(/[日月火水木金土]/);
+  // 日時が未確定なら、AI が日付を入れてきてもコード側で空にする（1つに決めつけた告知を防ぐ）
+  var uncertain = json.dateUncertain === true;
   return {
-    title: str(json.title),
-    summary: str(json.summary),
+    // トーク本体で【】を付けるので、AI が付けてきた外側の【】は外す（中にも【】があるものはそのまま）
+    title: str(json.title).replace(/^【([^【】]*)】?$/, '$1').trim(),
+    summary: normalizeSummaryBullets_(str(json.summary)),
     kind: findByKey_(APP_CONFIG.kinds, kindKey) ? kindKey : '',
     event: {
-      date: date(json.eventDate),
-      startTime: time(json.startTime),
-      endTime: time(json.endTime),
+      date: uncertain ? '' : date(json.eventDate),
+      startTime: uncertain ? '' : time(json.startTime),
+      endTime: uncertain ? '' : time(json.endTime),
       place: str(json.place),
       deadline: date(json.deadline),
       performers: str(json.performers)
     },
     imageText: str(json.imageText),
     flyerWeekday: weekday ? weekday[0] : '',
+    dateUncertain: uncertain,
+    dateNote: uncertain ? str(json.dateNote) : '',
     category: categories.indexOf(str(json.category)) !== -1 ? str(json.category) : '',
     tags: (Object.prototype.toString.call(json.tags) === '[object Array]' ? json.tags : [])
       .filter(function (t) { return tags.indexOf(t) !== -1; })
   };
+}
+
+/**
+ * 概略を「・」で始まる箇条書きにそろえる純粋関数。
+ * 行頭の記号（・ - * • ● 1. など）は「・」に統一し、空行は除く。
+ * 改行のない1段落で返ってきた場合は、句点「。」ごとに分けて箇条書きにする。
+ */
+function normalizeSummaryBullets_(text) {
+  var lines = String(text || '').split(/\r?\n/)
+    .map(function (line) { return line.trim(); })
+    .filter(function (line) { return line; });
+  if (lines.length === 1) {
+    var sentences = lines[0].match(/[^。]+。?/g) || [];
+    sentences = sentences.map(function (x) { return x.trim(); }).filter(function (x) { return x; });
+    if (sentences.length > 1) { lines = sentences; }
+  }
+  return lines.map(function (line) {
+    return '・' + line.replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '');
+  }).join('\n');
 }
 
 /** 'YYYY-MM-DD' が実在する日付か */

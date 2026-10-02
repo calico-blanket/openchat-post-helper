@@ -229,6 +229,17 @@
   // ---- トーク本体 -----------------------------------------------
 
   /**
+   * タイトルの外側の【】を外す（トーク本体では【】で囲むため、二重にしない）。
+   *   「【お知らせ】」→「お知らせ」、閉じ側が切れた「【お知らせ」→「お知らせ」
+   *   「【告知】と【報告】」のように中にも【】があるものは、壊さないようそのまま
+   */
+  function stripTitleBrackets(title) {
+    var t = String(title || '').trim();
+    var m = t.match(/^【([^【】]*)】$/) || t.match(/^【([^【】]*)$/);
+    return (m ? m[1] : t).trim();
+  }
+
+  /**
    * トーク本体（オープンチャットのトークに貼る文）を組み立てる。
    *   【タイトル】
    *   概略
@@ -243,7 +254,8 @@
     var blocks = [];
 
     var head = [];
-    var title = String(post.title || '').trim();
+    // 原文の見出しの【】がタイトルに残っていても、【【…】】と二重にしない
+    var title = stripTitleBrackets(post.title);
     if (title) { head.push('【' + title + '】'); }
     var summary = String(post.summary || '').trim();
     if (summary) { head.push(summary); }
@@ -536,6 +548,21 @@
     return warnings;
   }
 
+  // ---- 日時が未確定かもしれない原文の検出（AI の判定とは別に、コードで確かめる） ----
+
+  /**
+   * 原文に「日付の候補が複数ある（または・いずれか）」「未定・調整中・確定次第」などの
+   * 表現があれば、日時を言い切らないよう促す警告文を返す。なければ空文字。
+   */
+  function uncertainDateWarning(original) {
+    var text = toHalfWidth(original);
+    var dates = extractFacts(text).dates;
+    var alternatives = dates.length >= 2 && /または|もしくは|いずれか|のどちらか/.test(text);
+    var undecided = /日程[はがも]?未定|日時[はがも]?未定|調整中|確定次第|決定次第|確定は直前|追って(お知らせ|ご案内|連絡)/.test(text);
+    if (!alternatives && !undecided) { return ''; }
+    return '原文では日時がまだ確定していない可能性があります（候補が複数ある、または未定などの表現があります）。トーク本体の日時を言い切ってよいか確認してください。';
+  }
+
   // ---- その他 ---------------------------------------------------
 
   /** 配列の index 番目を delta(+1/-1) 方向の隣と入れ替えた新しい配列（範囲外は何もしない） */
@@ -566,6 +593,7 @@
     weekdayMismatchWarning: weekdayMismatchWarning,
     fillTemplate: fillTemplate,
     pickTemplate: pickTemplate,
+    stripTitleBrackets: stripTitleBrackets,
     buildTalkBody: buildTalkBody,
     buildThreadPrefix: buildThreadPrefix,
     splitText: splitText,
@@ -574,6 +602,7 @@
     extractFacts: extractFacts,
     checkSummary: checkSummary,
     summaryWarnings: summaryWarnings,
+    uncertainDateWarning: uncertainDateWarning,
     moveArrayItem: moveArrayItem
   };
 }));

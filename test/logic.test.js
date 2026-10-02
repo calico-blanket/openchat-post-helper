@@ -303,3 +303,36 @@ test('moveArrayItem: 範囲外の移動は何もしない', () => {
   assert.deepStrictEqual(L.moveArrayItem(['a', 'b', 'c'], 0, 1), ['b', 'a', 'c']);
   assert.deepStrictEqual(L.moveArrayItem(['a', 'b'], 0, -1), ['a', 'b']);
 });
+
+test('uncertainDateWarning: 日付の候補が複数・未定などの表現があれば警告する（コードで検出）', () => {
+  assert.match(L.uncertainDateWarning('実施日は10月7日または10月8日のいずれかとなります。'), /確定していない可能性/);
+  assert.match(L.uncertainDateWarning('10/7もしくは10/8に開催'), /確定していない/);
+  assert.match(L.uncertainDateWarning('日程は未定です。'), /確定していない/);
+  assert.match(L.uncertainDateWarning('実施日の確定は直前となる見込みです'), /確定していない/);
+  assert.match(L.uncertainDateWarning('詳細は追ってお知らせします'), /確定していない/);
+  assert.strictEqual(L.uncertainDateWarning('10月7日 21:30から配信します。'), '');
+  // 日付が1つだけなら「または」があっても候補が複数とはみなさない
+  assert.strictEqual(L.uncertainDateWarning('10月7日に、YouTubeまたはXで配信します。'), '');
+  assert.strictEqual(L.uncertainDateWarning(''), '');
+});
+
+test('buildTalkBody: タイトルにすでに【】が付いていても二重にしない', () => {
+  const body = L.buildTalkBody({ title: '【限定配信のお知らせ】', summary: '・要点', kind: 'article', source: 'slack' }, CONFIG, '2026-10-03');
+  assert.ok(body.startsWith('【限定配信のお知らせ】\n'));
+  assert.ok(!body.includes('【【'));
+  // 途中に【】がある場合はそのまま（先頭と末尾の両方にあるときだけ外す）
+  const body2 = L.buildTalkBody({ title: '【速報】配信のお知らせ', summary: '', kind: 'article', source: 'slack' }, CONFIG, '2026-10-03');
+  assert.ok(body2.startsWith('【【速報】配信のお知らせ】'));
+  // 「【A】と【B】」は外側だけ外すと壊れるので、そのまま囲む
+  const body3 = L.buildTalkBody({ title: '【告知】と【報告】', summary: '', kind: 'article', source: 'slack' }, CONFIG, '2026-10-03');
+  assert.ok(body3.startsWith('【【告知】と【報告】】'));
+});
+
+test('stripTitleBrackets: 外側の【】・閉じ側が切れた【を外し、中に【】があるものは壊さない', () => {
+  assert.strictEqual(L.stripTitleBrackets('【お知らせ】'), 'お知らせ');
+  assert.strictEqual(L.stripTitleBrackets(' 【お知らせ '), 'お知らせ');
+  assert.strictEqual(L.stripTitleBrackets('【告知】と【報告】'), '【告知】と【報告】');
+  assert.strictEqual(L.stripTitleBrackets('【速報】配信'), '【速報】配信');
+  assert.strictEqual(L.stripTitleBrackets('お知らせ'), 'お知らせ');
+  assert.strictEqual(L.stripTitleBrackets(''), '');
+});

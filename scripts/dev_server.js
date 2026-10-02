@@ -62,7 +62,10 @@ function fakeGeminiAnalyze(payload) {
     performers: isEvent ? '山田太郎' : '',
     imageText: hasImage ? '（偽の読み取り結果）\n街頭演説会\n明日 19:00〜 神戸駅前' : '',
     // 画像のときは、わざと違う曜日を返して食い違いの警告を確かめられるようにする
-    flyerWeekday: hasImage ? '日' : ''
+    flyerWeekday: hasImage ? '日' : '',
+    // 「または」があれば日時未確定として返す（それでも日付を入れてくる AI を想定し、日付は残す）
+    dateUncertain: /または|いずれか/.test(text),
+    dateNote: /または|いずれか/.test(text) ? '候補が複数あります（偽の応答）' : ''
   };
   const schema = payload.generationConfig.responseSchema.properties;
   if (schema.kind) { result.kind = isEvent ? 'schedule' : 'article'; }
