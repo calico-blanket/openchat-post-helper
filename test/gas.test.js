@@ -629,11 +629,14 @@ test('同じ名前の関数が二重に定義されていない（書き換え�
 
 // ---- 概略の箇条書き・未確定の日時 ------------------------------------
 
-test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段落なら句点ごとに分ける', () => {
+test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段落なら句点ごとに分け、末尾の「。」を外す', () => {
   const { context } = load();
   const n = context.normalizeSummaryBullets_;
   assert.strictEqual(n('- 一つ目\n* 二つ目\n\n1. 三つ目\n・四つ目'), '・一つ目\n・二つ目\n・三つ目\n・四つ目');
-  assert.strictEqual(n('配信を行います。アーカイブも残します。'), '・配信を行います。\n・アーカイブも残します。');
+  assert.strictEqual(n('配信を行います。アーカイブも残します。'), '・配信を行います\n・アーカイブも残します');
+  assert.strictEqual(n('・生配信を実施。。\n・アーカイブあり'), '・生配信を実施\n・アーカイブあり');
+  // 行の途中の「。」は外さない
+  assert.strictEqual(n('・配信。後日アーカイブ\n・二行目'), '・配信。後日アーカイブ\n・二行目');
   assert.strictEqual(n('一文だけ'), '・一文だけ');
   assert.strictEqual(n(''), '');
   assert.strictEqual(n('  \n  '), '');
@@ -642,10 +645,13 @@ test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段�
 test('analyze: 概略は箇条書きにそろえて返し、プロンプトでも箇条書きを指示する', () => {
   const env = load({ fetch: () => geminiRes(geminiAnalyze({ summary: '配信を行います。アーカイブも残します。' })) });
   const r = post(env, { action: 'analyze', text: '本文' });
-  assert.strictEqual(r.summary, '・配信を行います。\n・アーカイブも残します。');
+  assert.strictEqual(r.summary, '・配信を行います\n・アーカイブも残します');
   const payload = JSON.parse(env.calls[0].payload);
   assert.match(payload.generationConfig.responseSchema.properties.summary.description, /箇条書き/);
+  assert.match(payload.generationConfig.responseSchema.properties.summary.description, /体言止め/);
   assert.match(payload.systemInstruction.parts[0].text, /箇条書き/);
+  assert.match(payload.systemInstruction.parts[0].text, /体言止め/);
+  assert.match(payload.systemInstruction.parts[0].text, /です・ます体は使わず/);
 });
 
 test('analyze: 日時が未確定なら、AI が日付を入れてきても日時を空にし、候補のメモを返す', () => {

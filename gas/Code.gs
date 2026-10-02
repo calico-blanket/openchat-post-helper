@@ -599,7 +599,7 @@ function buildGeminiAnalyzeRequest_(options) {
   var kindKeys = APP_CONFIG.kinds.map(function (k) { return k.key; });
   var properties = {
     title: { type: 'STRING', description: '投稿のタイトル。30文字以内。【】は付けない' },
-    summary: { type: 'STRING', description: '概略。「・」で始まる箇条書きを2〜5行。1行に1つの要点を、短い1文で。出典や「詳細はスレッドで」は書かない' },
+    summary: { type: 'STRING', description: '概略。「・」で始まる箇条書きを2〜5行。1行に1つの要点を、短く体言止めで（例: ・サポーター・党員限定の生配信）。です・ます体は使わず、文末に「。」は付けない。出典や「詳細はスレッドで」は書かない' },
     eventDate: { type: 'STRING', description: '開催日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     startTime: { type: 'STRING', description: '開始時刻。HH:MM（24時間制）。無ければ空文字' },
     endTime: { type: 'STRING', description: '終了時刻。HH:MM（24時間制）。無ければ空文字' },
@@ -633,7 +633,7 @@ function buildGeminiAnalyzeRequest_(options) {
     '日付は今日（' + options.today + '）を基準に、年を補って YYYY-MM-DD の絶対日付にしてください。「明日」などの相対表現は使わないでください。',
     '曜日は計算しないでください。画像やチラシに曜日が書かれている場合だけ、書かれている曜日を flyerWeekday に入れてください。',
     '日時が確定していない場合（候補が複数ある、未定、調整中など）は、日付を1つに決めつけず、dateUncertain を true にして eventDate・startTime・endTime を空にしてください。',
-    '概略は「・」で始まる箇条書きにし、要点だけを簡潔に書きます。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドで」は書かないでください。',
+    '概略は「・」で始まる箇条書きにし、要点だけを簡潔に書きます。各行はできるだけ体言止めにし（例: 「配信を行います。」ではなく「生配信を実施」）、です・ます体は使わず、文末の「。」も付けません。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドで」は書かないでください。',
     options.classify ? '種別の定義:\n' + kindGuide : ''
   ].join('\n');
 
@@ -734,6 +734,7 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
  * 概略を「・」で始まる箇条書きにそろえる純粋関数。
  * 行頭の記号（・ - * • ● 1. など）は「・」に統一し、空行は除く。
  * 改行のない1段落で返ってきた場合は、句点「。」ごとに分けて箇条書きにする。
+ * 体言止めに合わせて、各行の末尾の「。」は外す（です・ます体の書き換えは AI への指示に任せる）。
  */
 function normalizeSummaryBullets_(text) {
   var lines = String(text || '').split(/\r?\n/)
@@ -745,7 +746,7 @@ function normalizeSummaryBullets_(text) {
     if (sentences.length > 1) { lines = sentences; }
   }
   return lines.map(function (line) {
-    return '・' + line.replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '');
+    return '・' + line.replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '').replace(/。+$/, '');
   }).join('\n');
 }
 
