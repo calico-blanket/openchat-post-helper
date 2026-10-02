@@ -336,3 +336,17 @@ test('stripTitleBrackets: 外側の【】・閉じ側が切れた【を外し、
   assert.strictEqual(L.stripTitleBrackets('お知らせ'), 'お知らせ');
   assert.strictEqual(L.stripTitleBrackets(''), '');
 });
+
+test('Slack の前置き: 名前があれば「発信者は○○です。」を付け、なければ従来の文', () => {
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', false), 'Slackからの転載です。発信者は運営アカウントです。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの抜粋転載です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '  ', false), '以下はSlackからの抜粋転載です。');
+  // 要約版は名前に関係なく「以下は要約です。」
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', true), '以下は要約です。');
+});
+
+test('Slack のトーク本体の出典行は、名前があっても変えない', () => {
+  const body = L.buildTalkBody({ title: 'T', summary: '・要点', kind: 'article', source: 'slack', author: '運営アカウント' }, CONFIG, '2026-10-03');
+  assert.ok(body.includes('Slackからの転載です。\n詳細はスレッドで'));
+  assert.ok(!body.includes('運営アカウント'));
+});

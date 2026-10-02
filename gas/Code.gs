@@ -25,6 +25,7 @@ var JEV_THRESHOLD = 0.5;
 
 var CATEGORIES_PROPERTY = 'CATEGORIES_JSON';
 var TAGS_PROPERTY = 'TAGS_JSON';
+var AUTHORS_PROPERTY = 'AUTHORS_JSON';
 
 // 保存先シート。1行1件。列を増やすときは右端（ID の右）に追加すれば既存の処理は壊れない
 var SHEET_NAME = '投稿一覧';
@@ -82,6 +83,9 @@ function doPost(e) {
       case 'addTag': return jsonResponse_(handleAddListItem_(body, 'tag'));
       case 'removeTag': return jsonResponse_(handleRemoveListItem_(body, 'tag'));
       case 'reorderTags': return jsonResponse_(handleReorderList_(body.tags, 'tag'));
+      case 'addAuthor': return jsonResponse_(handleAddListItem_(body, 'author'));
+      case 'removeAuthor': return jsonResponse_(handleRemoveListItem_(body, 'author'));
+      case 'reorderAuthors': return jsonResponse_(handleReorderList_(body.authors, 'author'));
       default:
         throw new Error('不明な action です: ' + action);
     }
@@ -148,6 +152,7 @@ function handleBootstrap_() {
     config: APP_CONFIG,
     categories: getCategories_(),
     tags: getTags_(),
+    authors: getAuthors_(),
     geminiConfigured: !!getProperty_('GEMINI_API_KEY'),
     jevConfigured: !!getProperty_('TYPESAFE_API_KEY'),
     model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL
@@ -1161,11 +1166,12 @@ function handleSearch_(body) {
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
 }
 
-// ---- カテゴリ・タグの管理（スクリプトプロパティ） ----------------------
+// ---- カテゴリ・タグ・投稿者の候補の管理（スクリプトプロパティ） ----------------
 
 var LIST_DEFS = {
   category: { property: CATEGORIES_PROPERTY, label: 'カテゴリ', key: 'categories' },
-  tag: { property: TAGS_PROPERTY, label: 'タグ', key: 'tags' }
+  tag: { property: TAGS_PROPERTY, label: 'タグ', key: 'tags' },
+  author: { property: AUTHORS_PROPERTY, label: '投稿者・発信者の候補', key: 'authors' }
 };
 
 /** カテゴリ一覧。未初期化・壊れていれば Config.gs の初期カテゴリで初期化する */
@@ -1188,6 +1194,19 @@ function getTags_() {
   return list;
 }
 
+/**
+ * 投稿者・発信者の候補一覧。未初期化・壊れていれば Config.gs の初期値で初期化する。
+ * 全部消して0件にした状態も正常として扱う（初期値に戻さない）。
+ */
+function getAuthors_() {
+  var list = readJsonList_(AUTHORS_PROPERTY);
+  if (!list) {
+    list = (APP_CONFIG.defaultAuthors || []).slice();
+    writeJsonList_(AUTHORS_PROPERTY, list);
+  }
+  return list;
+}
+
 function readJsonList_(property) {
   var raw = PropertiesService.getScriptProperties().getProperty(property);
   if (!raw) { return null; }
@@ -1204,7 +1223,8 @@ function writeJsonList_(property, list) {
 }
 
 function getList_(type) {
-  return type === 'category' ? getCategories_() : getTags_();
+  if (type === 'category') { return getCategories_(); }
+  return type === 'author' ? getAuthors_() : getTags_();
 }
 
 /** 名前を整える（タグはカンマ区切りで保存するため , を 、 に置き換える） */
