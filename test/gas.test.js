@@ -626,3 +626,63 @@ test('同じ名前の関数が二重に定義されていない（書き換え�
   const dup = names.filter((n, i) => names.indexOf(n) !== i);
   assert.deepStrictEqual(dup, []);
 });
+
+// ---- 概略の箇条書き・未確定の日時 ------------------------------------
+
+test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段落なら句点ごとに分け、末尾の「。」を外す', () => {
+  const { context } = load();
+  const n = context.normalizeSummaryBullets_;
+  assert.strictEqual(n('- 一つ目\n* 二つ目\n\n1. 三つ目\n・四つ目'), '・一つ目\n・二つ目\n・三つ目\n・四つ目');
+  assert.strictEqual(n('配信を行います。アーカイブも残します。'), '・配信を行います\n・アーカイブも残します');
+  assert.strictEqual(n('・生配信を実施。。\n・アーカイブあり'), '・生配信を実施\n・アーカイブあり');
+  // 行の途中の「。」は外さない
+  assert.strictEqual(n('・配信。後日アーカイブ\n・二行目'), '・配信。後日アーカイブ\n・二行目');
+  assert.strictEqual(n('一文だけ'), '・一文だけ');
+  assert.strictEqual(n(''), '');
+  assert.strictEqual(n('  \n  '), '');
+});
+
+test('analyze: 概略は箇条書きにそろえて返し、プロンプトでも箇条書きを指示する', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({ summary: '配信を行います。アーカイブも残します。' })) });
+  const r = post(env, { action: 'analyze', text: '本文' });
+  assert.strictEqual(r.summary, '・配信を行います\n・アーカイブも残します');
+  const payload = JSON.parse(env.calls[0].payload);
+  assert.match(payload.generationConfig.responseSchema.properties.summary.description, /箇条書き/);
+  assert.match(payload.generationConfig.responseSchema.properties.summary.description, /体言止め/);
+  assert.match(payload.systemInstruction.parts[0].text, /箇条書き/);
+  assert.match(payload.systemInstruction.parts[0].text, /体言止め/);
+  assert.match(payload.systemInstruction.parts[0].text, /です・ます体は使わず/);
+});
+
+test('analyze: 日時が未確定なら、AI が日付を入れてきても日時を空にし、候補のメモを返す', () => {
+  const env = load({
+    fetch: () => geminiRes(geminiAnalyze({
+      eventDate: '2026-10-07', startTime: '21:30', endTime: '22:30',
+      dateUncertain: true, dateNote: '10月7日または10月8日、21:30〜'
+    }))
+  });
+  const r = post(env, { action: 'analyze', text: '実施日は10月7日または10月8日のいずれかです' });
+  assert.strictEqual(r.dateUncertain, true);
+  assert.strictEqual(r.dateNote, '10月7日または10月8日、21:30〜');
+  assert.strictEqual(r.event.date, '');
+  assert.strictEqual(r.event.startTime, '');
+  assert.strictEqual(r.event.endTime, '');
+  assert.strictEqual(r.event.place, '神戸駅前', '日時以外の項目は残す');
+  const schema = JSON.parse(env.calls[0].payload).generationConfig.responseSchema;
+  assert.ok(schema.required.includes('dateUncertain'));
+});
+
+test('analyze: 日時が確定していれば dateUncertain は false で、日付はそのまま', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({ dateUncertain: false, dateNote: '余計な値' })) });
+  const r = post(env, { action: 'analyze', text: '本文' });
+  assert.strictEqual(r.dateUncertain, false);
+  assert.strictEqual(r.dateNote, '');
+  assert.strictEqual(r.event.date, '2026-10-03');
+});
+
+test('analyze: AI がタイトルに付けた外側の【】は外して返す', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({ title: '【限定配信のお知らせ】' })) });
+  assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).title, '限定配信のお知らせ');
+  const env2 = load({ fetch: () => geminiRes(geminiAnalyze({ title: '【告知】と【報告】' })) });
+  assert.strictEqual(post(env2, { action: 'analyze', text: '本文' }).title, '【告知】と【報告】');
+});

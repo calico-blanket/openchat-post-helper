@@ -388,7 +388,47 @@
     $('deleteButton').hidden = !post.id;
 
     refreshOutputs();
+
+    // 編集欄はふだん閉じておく。直す必要が高いとき（手で作る・必須項目が空・日時の警告あり）だけ開く
+    var talkNeedsEdit = !analysis || !post.title || !post.kind || hasDateWarning(readPost());
+    $('talkEditDetails').open = talkNeedsEdit;
+    $('threadEditDetails').open = !post.original;
     showView('resultView');
+  }
+
+  /** 日時まわりの警告（未確定・曜日の食い違い）があるか */
+  function hasDateWarning(post) {
+    return dateWarnings(post).length > 0;
+  }
+
+  /**
+   * 日時まわりの警告文を返す。
+   *   - AI が「日時が未確定」と判断した（日時は空にしてある）
+   *   - 原文に「または」「未定」などがあるのに、日時が入っている（コードで検出）
+   *   - チラシの曜日と、日付から計算した曜日が違う
+   */
+  function dateWarnings(post) {
+    var items = [];
+    var a = state.analysis;
+    // 日付を手で入れたあとは「入れていません」が事実と合わなくなるので、空のときだけ出す
+    if (a && a.dateUncertain && !post.event.date) {
+      items.push('AI は開催日時がまだ確定していないと判断したため、トークに日時を入れていません' +
+        (a.dateNote ? '（原文: ' + a.dateNote + '）' : '') + '。確定したら「トークの内容を直す」で入れてください');
+    }
+    if (post.kind === 'schedule' && post.event.date) {
+      var uncertain = L.uncertainDateWarning(post.original);
+      if (uncertain) { items.push(uncertain); }
+    }
+    var mismatch = L.weekdayMismatchWarning(post.event.date, a ? a.flyerWeekday : '');
+    if (mismatch) { items.push(mismatch); }
+    return items;
+  }
+
+  /** 入力元によっては使わない欄（投稿者名・日時）を隠す */
+  var AUTHOR_SOURCES = ['x', 'note', 'legislator'];
+  function updateFieldVisibility(post) {
+    $('fAuthorField').hidden = AUTHOR_SOURCES.indexOf(post.source) === -1;
+    $('eventFields').hidden = post.kind !== 'schedule';
   }
 
   function renderKindRadios(selected) {
@@ -469,12 +509,14 @@
     $('fEventWeekday').textContent = L.weekdayOf(post.event.date) || '—';
     $('fDeadlineWeekday').textContent = L.weekdayOf(post.event.deadline) || '—';
 
+    updateFieldVisibility(post);
+
     var flyerWeekday = state.analysis ? state.analysis.flyerWeekday : '';
     var mismatch = L.weekdayMismatchWarning(post.event.date, flyerWeekday);
     $('weekdayWarning').textContent = mismatch;
     $('weekdayWarning').hidden = !mismatch;
 
-    renderWarnings(mismatch);
+    renderWarnings(post);
 
     $('talkPreview').textContent = L.buildTalkBody(post, config(), todayIso());
     $('copyTalkButton').textContent = 'トーク本体をコピー';
@@ -488,7 +530,7 @@
     renderThreadMessages(post);
   }
 
-  function renderWarnings(weekdayWarning) {
+  function renderWarnings(post) {
     var items = [];
     var a = state.analysis;
     if (a) {
@@ -499,11 +541,11 @@
       if (a.originalFromImage) {
         items.push('スレッドの原文は画像から読み取った文章です。チラシと見比べて確認してください');
       }
-      if (a.analyzed) {
+      if (a.analyzed && post.kind === 'schedule' && post.event.date) {
         items.push('日時・場所は AI が読み取った値です。必ず原文やチラシと見比べてください');
       }
     }
-    if (weekdayWarning) { items.push(weekdayWarning); }
+    dateWarnings(post).forEach(function (w) { items.push(w); });
     var list = $('resultWarningList');
     list.textContent = '';
     items.forEach(function (w) { list.appendChild(el('li', { text: w })); });
@@ -535,7 +577,7 @@
         onClick: function () { copyText(m.text, label, button); }
       });
       list.appendChild(el('li', {}, [
-        el('h4', { id: headingId, className: 'message-meta', text: label + '（' + m.text.length + ' 文字）' }),
+        el('h3', { id: headingId, className: 'message-meta', text: label + '（' + m.text.length + ' 文字）' }),
         pre,
         button
       ]));
@@ -647,7 +689,12 @@
     }
     if (problems.length) {
       alertMessage('入力が足りません: ' + problems.join('、') + 'を入れてください');
-      if (firstInvalid) { firstInvalid.focus(); }
+      if (firstInvalid) {
+        // 閉じた折りたたみの中の欄にはフォーカスできないため、先に開く
+        var details = firstInvalid.closest('details');
+        if (details) { details.open = true; }
+        firstInvalid.focus();
+      }
       return false;
     }
     return true;

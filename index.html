@@ -74,7 +74,7 @@
 
     <!-- ===== 結果の確認と編集 ===== -->
     <section id="resultView" class="view" aria-labelledby="resultHeading" hidden>
-      <h1 id="resultHeading" tabindex="-1">結果の確認と編集</h1>
+      <h1 id="resultHeading" tabindex="-1">投稿文の確認とコピー</h1>
       <p id="elapsedNote" class="help" hidden></p>
 
       <div id="resultWarnings" class="warning-box" hidden>
@@ -83,134 +83,152 @@
       </div>
 
       <form id="postForm" novalidate>
-        <div class="field">
-          <label for="fTitle">タイトル（必須）</label>
-          <input type="text" id="fTitle" required aria-required="true">
-        </div>
 
-        <div class="field">
-          <label for="fSummary">概略（4〜6行）</label>
-          <textarea id="fSummary" rows="6"></textarea>
-        </div>
+        <!-- ① トークに貼る -->
+        <section class="step-box" aria-labelledby="step1Heading">
+          <h2 id="step1Heading" tabindex="-1">① トークに貼る</h2>
+          <p class="help">コピーして、オープンチャットのトークに貼ります。「本日」「明日」はコピーした時点の日付で付きます。</p>
+          <pre id="talkPreview" class="message-preview" tabindex="0" aria-label="トーク本体のプレビュー"></pre>
+          <button type="button" id="copyTalkButton" class="button primary">トーク本体をコピー</button>
 
-        <fieldset class="field">
-          <legend>種別（必須）</legend>
-          <div id="fKindGroup" class="radio-group" role="radiogroup" aria-label="種別"></div>
-        </fieldset>
+          <details id="talkEditDetails" class="edit-details">
+            <summary>トークの内容を直す（タイトル・概略・日時など）</summary>
 
-        <div class="field-row">
-          <div class="field">
-            <label for="fSource">入力元</label>
-            <select id="fSource"></select>
-          </div>
-          <div class="field">
-            <label for="fAuthor">投稿者・発信者の名前</label>
-            <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
-            <p id="fAuthorHelp" class="help">出典行・前置きの「○○さん」に入ります。空なら名前なしの文になります。</p>
-          </div>
-        </div>
-
-        <fieldset class="field event-box">
-          <legend>開催日時など（必ず確認してください）</legend>
-          <div class="field-row">
             <div class="field">
-              <label for="fEventDate">開催日</label>
-              <input type="date" id="fEventDate" aria-describedby="fEventWeekday">
-              <p class="help">曜日: <output id="fEventWeekday" for="fEventDate">—</output></p>
+              <label for="fTitle">タイトル（必須。トークでは【】で囲まれます）</label>
+              <input type="text" id="fTitle" required aria-required="true">
             </div>
+
             <div class="field">
-              <label for="fStartTime">開始時刻</label>
-              <input type="time" id="fStartTime">
+              <label for="fSummary">概略（箇条書き）</label>
+              <textarea id="fSummary" rows="5"></textarea>
             </div>
+
+            <fieldset class="field">
+              <legend>種別（必須）</legend>
+              <div id="fKindGroup" class="radio-group" role="radiogroup" aria-label="種別"></div>
+              <p class="help">「スケジュール」を選ぶと、トークに日時・場所・出演者の行が入ります。</p>
+            </fieldset>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="fSource">入力元</label>
+                <select id="fSource"></select>
+              </div>
+              <div class="field" id="fAuthorField">
+                <label for="fAuthor">投稿者・発信者の名前</label>
+                <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
+                <p id="fAuthorHelp" class="help">出典行・前置きの「○○さん」に入ります。空なら名前なしの文になります。</p>
+              </div>
+            </div>
+
+            <fieldset class="field event-box" id="eventFields">
+              <legend>開催日時など（必ず原文と見比べてください）</legend>
+              <div class="field-row">
+                <div class="field">
+                  <label for="fEventDate">開催日</label>
+                  <input type="date" id="fEventDate" aria-describedby="fEventWeekdayHelp">
+                  <p class="help" id="fEventWeekdayHelp">曜日: <output id="fEventWeekday" for="fEventDate">—</output></p>
+                </div>
+                <div class="field">
+                  <label for="fStartTime">開始時刻</label>
+                  <input type="time" id="fStartTime">
+                </div>
+                <div class="field">
+                  <label for="fEndTime">終了時刻</label>
+                  <input type="time" id="fEndTime">
+                </div>
+              </div>
+              <p id="weekdayWarning" class="inline-warning" hidden></p>
+              <div class="field">
+                <label for="fPlace">場所</label>
+                <input type="text" id="fPlace">
+              </div>
+              <div class="field">
+                <label for="fPerformers">出演者</label>
+                <input type="text" id="fPerformers">
+              </div>
+              <div class="field">
+                <label for="fDeadline">申込締切</label>
+                <input type="date" id="fDeadline" aria-describedby="fDeadlineWeekdayHelp">
+                <p class="help" id="fDeadlineWeekdayHelp">曜日: <output id="fDeadlineWeekday" for="fDeadline">—</output></p>
+              </div>
+            </fieldset>
+          </details>
+        </section>
+
+        <!-- ② スレッドに貼る -->
+        <section class="step-box" aria-labelledby="step2Heading">
+          <h2 id="step2Heading">② スレッドに貼る</h2>
+          <p class="help">①で貼った投稿のスレッドに、上から順に1通ずつコピーして貼ります。原文は AI を通さず、そのまま使います。</p>
+          <ol id="threadMessages" class="message-list"></ol>
+
+          <details id="threadEditDetails" class="edit-details">
+            <summary>スレッドの内容を直す（前置き・原文・要約・コメント）</summary>
+
             <div class="field">
-              <label for="fEndTime">終了時刻</label>
-              <input type="time" id="fEndTime">
+              <label for="fPrefix">前置き</label>
+              <input type="text" id="fPrefix">
             </div>
-          </div>
-          <p id="weekdayWarning" class="inline-warning" hidden></p>
+
+            <div class="field">
+              <label for="fOriginal">原文</label>
+              <textarea id="fOriginal" rows="8"></textarea>
+            </div>
+
+            <fieldset class="field summary-box">
+              <legend>長いときは要約する（任意）</legend>
+              <div class="radio-group">
+                <label class="choice"><input type="radio" name="summaryLength" value="half" checked> 半分程度</label>
+                <label class="choice"><input type="radio" name="summaryLength" value="3lines"> 3行程度</label>
+              </div>
+              <div class="actions">
+                <button type="button" id="summarizeButton" class="button secondary">要約する</button>
+                <button type="button" id="revertSummaryButton" class="button secondary" hidden>原文に戻す</button>
+              </div>
+              <div id="summaryDraftArea" hidden>
+                <label for="fSummaryDraft">要約の下書き（編集できます。スレッドには原文の代わりにこれを使います）</label>
+                <textarea id="fSummaryDraft" rows="6"></textarea>
+                <ul id="summaryWarningList" class="inline-warning-list"></ul>
+              </div>
+            </fieldset>
+
+            <div class="field">
+              <label for="fMemo">コメント（スレッドの最後に添えます）</label>
+              <textarea id="fMemo" rows="2"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="fUrl">URL（X の場合は URL だけの1通になります）</label>
+              <input type="url" id="fUrl" inputmode="url" autocomplete="off">
+            </div>
+          </details>
+        </section>
+
+        <!-- ③ 保存する -->
+        <section class="step-box" aria-labelledby="step3Heading">
+          <h2 id="step3Heading">③ 保存する（任意）</h2>
+          <p class="help">あとで一覧から探せるように、スプレッドシートに保存します。</p>
+
           <div class="field">
-            <label for="fPlace">場所</label>
-            <input type="text" id="fPlace">
+            <label for="fCategory">カテゴリ（必須）</label>
+            <select id="fCategory" required aria-required="true"></select>
           </div>
-          <div class="field">
-            <label for="fPerformers">出演者</label>
-            <input type="text" id="fPerformers">
+
+          <fieldset class="field">
+            <legend>タグ</legend>
+            <div id="fTagGroup" class="check-group"></div>
+            <p id="fTagEmpty" class="help" hidden>タグはまだありません。設定画面で追加できます。</p>
+          </fieldset>
+
+          <div class="actions">
+            <button type="button" id="saveButton" class="button primary">保存する</button>
+            <button type="button" id="deleteButton" class="button danger" hidden>この投稿を削除</button>
           </div>
-          <div class="field">
-            <label for="fDeadline">申込締切</label>
-            <input type="date" id="fDeadline" aria-describedby="fDeadlineWeekday">
-            <p class="help">曜日: <output id="fDeadlineWeekday" for="fDeadline">—</output></p>
-          </div>
-        </fieldset>
-
-        <div class="field">
-          <label for="fCategory">カテゴリ（必須）</label>
-          <select id="fCategory" required aria-required="true"></select>
-        </div>
-
-        <fieldset class="field">
-          <legend>タグ</legend>
-          <div id="fTagGroup" class="check-group"></div>
-          <p id="fTagEmpty" class="help" hidden>タグはまだありません。設定画面で追加できます。</p>
-        </fieldset>
-
-        <div class="field">
-          <label for="fUrl">URL</label>
-          <input type="url" id="fUrl" inputmode="url" autocomplete="off">
-        </div>
-
-        <div class="field">
-          <label for="fMemo">メモ（スレッドにコメントとして添えます）</label>
-          <textarea id="fMemo" rows="2"></textarea>
-        </div>
+        </section>
       </form>
 
-      <!-- トーク本体 -->
-      <section class="output-box" aria-labelledby="talkHeading">
-        <h2 id="talkHeading">トーク本体</h2>
-        <p class="help">「本日」「明日」はコピーした時点の日付で付きます。</p>
-        <pre id="talkPreview" class="message-preview" tabindex="0" aria-label="トーク本体のプレビュー"></pre>
-        <button type="button" id="copyTalkButton" class="button primary">トーク本体をコピー</button>
-      </section>
-
-      <!-- スレッド（詳細） -->
-      <section class="output-box" aria-labelledby="threadHeading">
-        <h2 id="threadHeading">スレッド（詳細）</h2>
-
-        <div class="field">
-          <label for="fPrefix">前置き</label>
-          <input type="text" id="fPrefix">
-        </div>
-
-        <div class="field">
-          <label for="fOriginal">原文（AI を通さずそのまま使います）</label>
-          <textarea id="fOriginal" rows="8"></textarea>
-        </div>
-
-        <fieldset class="field summary-box">
-          <legend>要約（必要なときだけ）</legend>
-          <div class="radio-group">
-            <label class="choice"><input type="radio" name="summaryLength" value="half" checked> 半分程度</label>
-            <label class="choice"><input type="radio" name="summaryLength" value="3lines"> 3行程度</label>
-          </div>
-          <div class="actions">
-            <button type="button" id="summarizeButton" class="button secondary">要約する</button>
-            <button type="button" id="revertSummaryButton" class="button secondary" hidden>原文に戻す</button>
-          </div>
-          <div id="summaryDraftArea" hidden>
-            <label for="fSummaryDraft">要約の下書き（編集できます。スレッドには原文の代わりにこれを使います）</label>
-            <textarea id="fSummaryDraft" rows="6"></textarea>
-            <ul id="summaryWarningList" class="inline-warning-list"></ul>
-          </div>
-        </fieldset>
-
-        <h3 class="subheading">コピーするメッセージ（1通ずつ）</h3>
-        <ol id="threadMessages" class="message-list"></ol>
-      </section>
-
-      <div class="actions sticky-actions">
-        <button type="button" id="saveButton" class="button primary">保存する</button>
-        <button type="button" id="deleteButton" class="button danger" hidden>この投稿を削除</button>
+      <div class="actions">
         <button type="button" id="newButton" class="button secondary">新しく作る</button>
       </div>
     </section>
