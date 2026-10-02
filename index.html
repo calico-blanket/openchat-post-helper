@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>オープンチャット投稿ヘルパー</title>
+  <meta name="description" content="告知や記事を、LINEオープンチャットに貼りやすい文章に整えます">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon-192.png">
+  <meta name="theme-color" content="#1e3a8a">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">本文へ移動</a>
+
+  <header class="app-header">
+    <p class="app-title" id="appTitle">オープンチャット投稿ヘルパー</p>
+    <nav aria-label="画面の切り替え">
+      <ul class="nav-list">
+        <li><button type="button" class="nav-button" data-nav="inputView">新規</button></li>
+        <li><button type="button" class="nav-button" data-nav="listView">一覧・検索</button></li>
+        <li><button type="button" class="nav-button" data-nav="settingsView">設定</button></li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- 状態メッセージ（生成中・完了・警告）を読み上げる領域。画面上にも表示する -->
+  <div id="statusRegion" class="status-region" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="alertRegion" class="alert-region" role="alert" aria-atomic="true"></div>
+
+  <main id="main">
+
+    <!-- ===== 入力 ===== -->
+    <section id="inputView" class="view" aria-labelledby="inputHeading">
+      <h1 id="inputHeading" tabindex="-1">投稿のもとを入力</h1>
+      <p id="sharedNotice" class="notice" hidden>共有された内容を読み込みました。</p>
+
+      <div class="field">
+        <label for="inputSource">入力元</label>
+        <select id="inputSource">
+          <option value="">自動で判定する</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="inputUrl">URL（任意）</label>
+        <input type="url" id="inputUrl" inputmode="url" autocomplete="off" aria-describedby="inputUrlHelp">
+        <p id="inputUrlHelp" class="help">note・X などの URL を入れると本文を取りに行きます。Slack の URL からは取れないので、本文も貼り付けてください。</p>
+      </div>
+
+      <div class="field">
+        <label for="inputText">本文（任意）</label>
+        <textarea id="inputText" rows="8" aria-describedby="inputTextHelp"></textarea>
+        <p id="inputTextHelp" class="help">貼り付けた本文は、スレッドにそのまま（一字も変えずに）使います。</p>
+      </div>
+
+      <div class="field">
+        <span class="label-like" id="imageLabel">チラシなどの画像（任意）</span>
+        <div class="image-picker">
+          <button type="button" id="pickImageButton" class="button secondary" aria-describedby="imageLabel">画像を選ぶ</button>
+          <input type="file" id="imageInput" accept="image/jpeg,image/png,image/webp" class="visually-hidden" tabindex="-1" aria-hidden="true">
+          <div id="imagePreview" class="image-preview" hidden>
+            <img id="imagePreviewImg" alt="選んだ画像のプレビュー">
+            <button type="button" id="clearImageButton" class="button secondary">画像を外す</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="analyzeButton" class="button primary">文章を整える</button>
+        <button type="button" id="manualButton" class="button secondary">AI を使わずに手で作る</button>
+      </div>
+    </section>
+
+    <!-- ===== 結果の確認と編集 ===== -->
+    <section id="resultView" class="view" aria-labelledby="resultHeading" hidden>
+      <h1 id="resultHeading" tabindex="-1">結果の確認と編集</h1>
+      <p id="elapsedNote" class="help" hidden></p>
+
+      <div id="resultWarnings" class="warning-box" hidden>
+        <h2 class="warning-title">確認してください</h2>
+        <ul id="resultWarningList"></ul>
+      </div>
+
+      <form id="postForm" novalidate>
+        <div class="field">
+          <label for="fTitle">タイトル（必須）</label>
+          <input type="text" id="fTitle" required aria-required="true">
+        </div>
+
+        <div class="field">
+          <label for="fSummary">概略（4〜6行）</label>
+          <textarea id="fSummary" rows="6"></textarea>
+        </div>
+
+        <fieldset class="field">
+          <legend>種別（必須）</legend>
+          <div id="fKindGroup" class="radio-group" role="radiogroup" aria-label="種別"></div>
+        </fieldset>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="fSource">入力元</label>
+            <select id="fSource"></select>
+          </div>
+          <div class="field">
+            <label for="fAuthor">投稿者・発信者の名前</label>
+            <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
+            <p id="fAuthorHelp" class="help">出典行・前置きの「○○さん」に入ります。空なら名前なしの文になります。</p>
+          </div>
+        </div>
+
+        <fieldset class="field event-box">
+          <legend>開催日時など（必ず確認してください）</legend>
+          <div class="field-row">
+            <div class="field">
+              <label for="fEventDate">開催日</label>
+              <input type="date" id="fEventDate" aria-describedby="fEventWeekday">
+              <p class="help">曜日: <output id="fEventWeekday" for="fEventDate">—</output></p>
+            </div>
+            <div class="field">
+              <label for="fStartTime">開始時刻</label>
+              <input type="time" id="fStartTime">
+            </div>
+            <div class="field">
+              <label for="fEndTime">終了時刻</label>
+              <input type="time" id="fEndTime">
+            </div>
+          </div>
+          <p id="weekdayWarning" class="inline-warning" hidden></p>
+          <div class="field">
+            <label for="fPlace">場所</label>
+            <input type="text" id="fPlace">
+          </div>
+          <div class="field">
+            <label for="fPerformers">出演者</label>
+            <input type="text" id="fPerformers">
+          </div>
+          <div class="field">
+            <label for="fDeadline">申込締切</label>
+            <input type="date" id="fDeadline" aria-describedby="fDeadlineWeekday">
+            <p class="help">曜日: <output id="fDeadlineWeekday" for="fDeadline">—</output></p>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="fCategory">カテゴリ（必須）</label>
+          <select id="fCategory" required aria-required="true"></select>
+        </div>
+
+        <fieldset class="field">
+          <legend>タグ</legend>
+          <div id="fTagGroup" class="check-group"></div>
+          <p id="fTagEmpty" class="help" hidden>タグはまだありません。設定画面で追加できます。</p>
+        </fieldset>
+
+        <div class="field">
+          <label for="fUrl">URL</label>
+          <input type="url" id="fUrl" inputmode="url" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="fMemo">メモ（スレッドにコメントとして添えます）</label>
+          <textarea id="fMemo" rows="2"></textarea>
+        </div>
+      </form>
+
+      <!-- トーク本体 -->
+      <section class="output-box" aria-labelledby="talkHeading">
+        <h2 id="talkHeading">トーク本体</h2>
+        <p class="help">「本日」「明日」はコピーした時点の日付で付きます。</p>
+        <pre id="talkPreview" class="message-preview" tabindex="0" aria-label="トーク本体のプレビュー"></pre>
+        <button type="button" id="copyTalkButton" class="button primary">トーク本体をコピー</button>
+      </section>
+
+      <!-- スレッド（詳細） -->
+      <section class="output-box" aria-labelledby="threadHeading">
+        <h2 id="threadHeading">スレッド（詳細）</h2>
+
+        <div class="field">
+          <label for="fPrefix">前置き</label>
+          <input type="text" id="fPrefix">
+        </div>
+
+        <div class="field">
+          <label for="fOriginal">原文（AI を通さずそのまま使います）</label>
+          <textarea id="fOriginal" rows="8"></textarea>
+        </div>
+
+        <fieldset class="field summary-box">
+          <legend>要約（必要なときだけ）</legend>
+          <div class="radio-group">
+            <label class="choice"><input type="radio" name="summaryLength" value="half" checked> 半分程度</label>
+            <label class="choice"><input type="radio" name="summaryLength" value="3lines"> 3行程度</label>
+          </div>
+          <div class="actions">
+            <button type="button" id="summarizeButton" class="button secondary">要約する</button>
+            <button type="button" id="revertSummaryButton" class="button secondary" hidden>原文に戻す</button>
+          </div>
+          <div id="summaryDraftArea" hidden>
+            <label for="fSummaryDraft">要約の下書き（編集できます。スレッドには原文の代わりにこれを使います）</label>
+            <textarea id="fSummaryDraft" rows="6"></textarea>
+            <ul id="summaryWarningList" class="inline-warning-list"></ul>
+          </div>
+        </fieldset>
+
+        <h3 class="subheading">コピーするメッセージ（1通ずつ）</h3>
+        <ol id="threadMessages" class="message-list"></ol>
+      </section>
+
+      <div class="actions sticky-actions">
+        <button type="button" id="saveButton" class="button primary">保存する</button>
+        <button type="button" id="deleteButton" class="button danger" hidden>この投稿を削除</button>
+        <button type="button" id="newButton" class="button secondary">新しく作る</button>
+      </div>
+    </section>
+
+    <!-- ===== 一覧・検索 ===== -->
+    <section id="listView" class="view" aria-labelledby="listHeading" hidden>
+      <h1 id="listHeading" tabindex="-1">一覧・検索</h1>
+      <form id="searchForm" role="search" aria-label="保存した投稿を検索">
+        <div class="field">
+          <label for="searchKeyword">キーワード（タイトル・本文・メモなど）</label>
+          <input type="search" id="searchKeyword">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="searchCategory">カテゴリ</label>
+            <select id="searchCategory"><option value="">すべて</option></select>
+          </div>
+          <div class="field">
+            <label for="searchKind">種別</label>
+            <select id="searchKind"><option value="">すべて</option></select>
+          </div>
+        </div>
+        <details class="field">
+          <summary>タグで絞り込む</summary>
+          <div id="searchTagGroup" class="check-group"></div>
+        </details>
+        <button type="submit" class="button primary">検索</button>
+      </form>
+      <ul id="listItems" class="item-list" aria-label="検索結果"></ul>
+      <button type="button" id="moreButton" class="button secondary" hidden>さらに表示</button>
+    </section>
+
+    <!-- ===== 設定 ===== -->
+    <section id="settingsView" class="view" aria-labelledby="settingsHeading" hidden>
+      <h1 id="settingsHeading" tabindex="-1">設定</h1>
+
+      <form id="connectionForm">
+        <h2>接続</h2>
+        <div class="field">
+          <label for="gasUrl">GAS の Web アプリ URL</label>
+          <input type="url" id="gasUrl" inputmode="url" autocomplete="off" required aria-required="true">
+        </div>
+        <div class="field">
+          <label for="sharedToken">合言葉</label>
+          <input type="password" id="sharedToken" autocomplete="current-password" required aria-required="true">
+          <label class="choice"><input type="checkbox" id="showToken"> 合言葉を表示する</label>
+        </div>
+        <button type="submit" class="button primary">保存して接続を確かめる</button>
+        <p id="serverInfo" class="help"></p>
+      </form>
+
+      <section aria-labelledby="categoryManageHeading">
+        <h2 id="categoryManageHeading">カテゴリ</h2>
+        <ul id="categoryManageList" class="manage-list"></ul>
+        <div class="add-row">
+          <label for="newCategory">追加するカテゴリ名</label>
+          <input type="text" id="newCategory">
+          <button type="button" id="addCategoryButton" class="button secondary">追加</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="tagManageHeading">
+        <h2 id="tagManageHeading">タグ</h2>
+        <ul id="tagManageList" class="manage-list"></ul>
+        <div class="add-row">
+          <label for="newTag">追加するタグ名</label>
+          <input type="text" id="newTag">
+          <button type="button" id="addTagButton" class="button secondary">追加</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="timingHeading">
+        <h2 id="timingHeading">所要時間の記録（共有から結果表示まで）</h2>
+        <ol id="timingList" class="timing-list"></ol>
+        <button type="button" id="clearTimingButton" class="button secondary">記録を消す</button>
+      </section>
+    </section>
+  </main>
+
+  <script src="/js/logic.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

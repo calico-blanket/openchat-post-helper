@@ -269,7 +269,8 @@ function handleAnalyze_(body) {
   }
 
   result.legislatorTags = matchLegislators_(
-    [result.title, result.originalText, result.imageText].join('\n'),
+    // 投稿者名も対象にする（議員本人の X 投稿・note 記事にもタグを付けるため）
+    [result.author, result.title, result.originalText, result.imageText].join('\n'),
     APP_CONFIG.legislators
   );
   result.analyzed = true;

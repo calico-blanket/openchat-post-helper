@@ -511,9 +511,12 @@ test('analyze: X の URL は oEmbed で本文と投稿者名を取り、末尾�
       return geminiRes(geminiAnalyze());
     }
   });
+  vm.runInContext("APP_CONFIG.legislators = ['山田太郎']", env.context);
   const r = post(env, { action: 'analyze', url: 'https://x.com/yamada/status/1' });
   assert.strictEqual(r.source, 'x');
   assert.strictEqual(r.author, '山田太郎');
+  // 本文に名前が無くても、投稿者名が議員名一覧と一致すればタグを付ける
+  assert.deepStrictEqual(r.legislatorTags, ['山田太郎']);
   assert.strictEqual(r.originalText, '明日は&街頭演説\nよろしく😀');
   assert.strictEqual(r.fetchStatus, 'ok');
 
