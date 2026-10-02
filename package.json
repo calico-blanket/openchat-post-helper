@@ -1,0 +1,12 @@
+{
+  "name": "openchat-post-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Slack・X・LINE公式・note・チラシ画像などを、LINEオープンチャットに貼りやすいコピー用の文章に整える PWA + GAS",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "node scripts/dev_server.js",
+    "icons": "node scripts/generate_icons.js"
+  }
+}
