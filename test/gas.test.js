@@ -686,3 +686,24 @@ test('analyze: AI がタイトルに付けた外側の【】は外して返す',
   const env2 = load({ fetch: () => geminiRes(geminiAnalyze({ title: '【告知】と【報告】' })) });
   assert.strictEqual(post(env2, { action: 'analyze', text: '本文' }).title, '【告知】と【報告】');
 });
+
+// ---- 投稿者・発信者の候補 ----------------------------------------------
+
+test('投稿者の候補: 初期値は Config.gs の defaultAuthors、追加・並べ替え・削除ができ、0件も保てる', () => {
+  const env = load();
+  assert.deepStrictEqual(post(env, { action: 'bootstrap' }).authors, ['運営アカウント']);
+  assert.deepStrictEqual(post(env, { action: 'addAuthor', name: '  広報チーム ' }).authors, ['運営アカウント', '広報チーム']);
+  assert.match(post(env, { action: 'addAuthor', name: '広報チーム' }).error, /すでにあります/);
+  assert.match(post(env, { action: 'addAuthor', name: '  ' }).error, /入力してください/);
+  assert.deepStrictEqual(post(env, { action: 'reorderAuthors', authors: ['広報チーム', '運営アカウント'] }).authors, ['広報チーム', '運営アカウント']);
+  assert.match(post(env, { action: 'reorderAuthors', authors: ['広報チーム'] }).error, /一致しません/);
+  post(env, { action: 'removeAuthor', name: '広報チーム' });
+  assert.deepStrictEqual(post(env, { action: 'removeAuthor', name: '運営アカウント' }).authors, []);
+  // 全部消しても初期値に戻らない
+  assert.deepStrictEqual(post(env, { action: 'bootstrap' }).authors, []);
+});
+
+test('投稿者の候補の操作も合言葉が必要', () => {
+  const env = load();
+  assert.match(post(env, { action: 'addAuthor', name: 'x' }, 'wrong').error, /合言葉が一致しません/);
+});

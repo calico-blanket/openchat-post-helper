@@ -118,7 +118,8 @@
               <div class="field" id="fAuthorField">
                 <label for="fAuthor">投稿者・発信者の名前</label>
                 <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
-                <p id="fAuthorHelp" class="help">出典行・前置きの「○○さん」に入ります。空なら名前なしの文になります。</p>
+                <p id="fAuthorHelp" class="help">スレッドの前置きなどに名前が入ります。空なら名前なしの文になります。</p>
+                <div id="fAuthorPicks" class="pick-group" role="group" aria-label="投稿者名の候補"></div>
               </div>
             </div>
 
@@ -281,7 +282,7 @@
       </form>
 
       <section aria-labelledby="categoryManageHeading">
-        <h2 id="categoryManageHeading">カテゴリ</h2>
+        <h2 id="categoryManageHeading" tabindex="-1">カテゴリ</h2>
         <ul id="categoryManageList" class="manage-list"></ul>
         <div class="add-row">
           <label for="newCategory">追加するカテゴリ名</label>
@@ -291,12 +292,23 @@
       </section>
 
       <section aria-labelledby="tagManageHeading">
-        <h2 id="tagManageHeading">タグ</h2>
+        <h2 id="tagManageHeading" tabindex="-1">タグ</h2>
         <ul id="tagManageList" class="manage-list"></ul>
         <div class="add-row">
           <label for="newTag">追加するタグ名</label>
           <input type="text" id="newTag">
           <button type="button" id="addTagButton" class="button secondary">追加</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="authorManageHeading">
+        <h2 id="authorManageHeading" tabindex="-1">投稿者・発信者の候補</h2>
+        <p class="help">結果画面の「投稿者・発信者の名前」の下に、ボタンとして並びます。</p>
+        <ul id="authorManageList" class="manage-list"></ul>
+        <div class="add-row">
+          <label for="newAuthor">追加する名前</label>
+          <input type="text" id="newAuthor">
+          <button type="button" id="addAuthorButton" class="button secondary">追加</button>
         </div>
       </section>
 

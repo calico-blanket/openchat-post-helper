@@ -181,6 +181,7 @@
     if (!state.boot) { return; }
     if (json.categories) { state.boot.categories = json.categories; }
     if (json.tags) { state.boot.tags = json.tags; }
+    if (json.authors) { state.boot.authors = json.authors; renderAuthorPicks(); }
     writeStorage(BOOT_CACHE_KEY, state.boot);
     renderSearchFilters();
     renderManageLists();
@@ -365,6 +366,7 @@
     $('fSource').value = post.source || 'other';
     renderCategorySelect(post.category);
     renderTagChecks(post.tags);
+    renderAuthorPicks();
 
     $('fTitle').value = post.title;
     $('fSummary').value = post.summary;
@@ -424,8 +426,41 @@
     return items;
   }
 
+  /**
+   * 投稿者名の候補ボタン（「名前なし」＋設定画面の候補）を描く。
+   * 押すと欄に入り、前置き・出典行が作り直される。今の欄の値と同じボタンは押された状態（aria-pressed）にする。
+   */
+  function renderAuthorPicks() {
+    var group = $('fAuthorPicks');
+    group.textContent = '';
+    var names = [''].concat((state.boot && state.boot.authors) || []);
+    names.forEach(function (name) {
+      group.appendChild(el('button', {
+        type: 'button',
+        className: 'button secondary small pick-button',
+        text: name || '名前なし',
+        'data-author': name,
+        'aria-pressed': 'false',
+        onClick: function () {
+          $('fAuthor').value = name;
+          // 欄に手で入力したときと同じ処理（前置きの自動更新・プレビュー更新）を走らせる
+          $('fAuthor').dispatchEvent(new Event('input', { bubbles: true }));
+          announce(name ? '投稿者名を「' + name + '」にしました' : '投稿者名を空にしました');
+        }
+      }));
+    });
+    updateAuthorPicks();
+  }
+
+  function updateAuthorPicks() {
+    var current = $('fAuthor').value.trim();
+    Array.prototype.forEach.call(document.querySelectorAll('#fAuthorPicks [data-author]'), function (button) {
+      button.setAttribute('aria-pressed', button.getAttribute('data-author') === current ? 'true' : 'false');
+    });
+  }
+
   /** 入力元によっては使わない欄（投稿者名・日時）を隠す */
-  var AUTHOR_SOURCES = ['x', 'note', 'legislator'];
+  var AUTHOR_SOURCES = ['slack', 'x', 'note', 'legislator'];
   function updateFieldVisibility(post) {
     $('fAuthorField').hidden = AUTHOR_SOURCES.indexOf(post.source) === -1;
     $('eventFields').hidden = post.kind !== 'schedule';
@@ -510,6 +545,7 @@
     $('fDeadlineWeekday').textContent = L.weekdayOf(post.event.deadline) || '—';
 
     updateFieldVisibility(post);
+    updateAuthorPicks();
 
     var flyerWeekday = state.analysis ? state.analysis.flyerWeekday : '';
     var mismatch = L.weekdayMismatchWarning(post.event.date, flyerWeekday);
@@ -862,21 +898,41 @@
 
   // ---- 設定 ------------------------------------------------------------
 
+  // 設定画面で管理する一覧（カテゴリ・タグ・投稿者の候補）の定義
+  var LIST_UI = {
+    category: {
+      label: 'カテゴリ', key: 'categories', add: 'addCategory', remove: 'removeCategory', reorder: 'reorderCategories',
+      list: 'categoryManageList', heading: 'categoryManageHeading', input: 'newCategory',
+      removeNote: '（保存済みの投稿はそのまま残ります）'
+    },
+    tag: {
+      label: 'タグ', key: 'tags', add: 'addTag', remove: 'removeTag', reorder: 'reorderTags',
+      list: 'tagManageList', heading: 'tagManageHeading', input: 'newTag',
+      removeNote: '（保存済みの投稿はそのまま残ります）'
+    },
+    author: {
+      label: '投稿者・発信者の候補', key: 'authors', add: 'addAuthor', remove: 'removeAuthor', reorder: 'reorderAuthors',
+      list: 'authorManageList', heading: 'authorManageHeading', input: 'newAuthor',
+      removeNote: ''
+    }
+  };
+
   function renderManageLists() {
-    renderManageList($('categoryManageList'), (state.boot && state.boot.categories) || [], 'category');
-    renderManageList($('tagManageList'), (state.boot && state.boot.tags) || [], 'tag');
+    Object.keys(LIST_UI).forEach(function (type) {
+      renderManageList($(LIST_UI[type].list), (state.boot && state.boot[LIST_UI[type].key]) || [], type);
+    });
   }
 
   function renderManageList(container, names, type) {
+    var def = LIST_UI[type];
     container.textContent = '';
-    var label = type === 'category' ? 'カテゴリ' : 'タグ';
     names.forEach(function (name, index) {
       var move = function (delta) {
-        var next = L.moveArrayItem(names, index, delta);
-        var body = type === 'category' ? { action: 'reorderCategories', categories: next } : { action: 'reorderTags', tags: next };
+        var body = { action: def.reorder };
+        body[def.key] = L.moveArrayItem(names, index, delta);
         gasCall(body).then(function (json) {
           updateBootLists(json);
-          announce(label + '「' + name + '」を' + (delta < 0 ? '上' : '下') + 'へ移動しました');
+          announce(def.label + '「' + name + '」を' + (delta < 0 ? '上' : '下') + 'へ移動しました');
           var buttons = container.querySelectorAll('li')[index + delta];
           if (buttons) { buttons.querySelector(delta < 0 ? '[data-move="up"]' : '[data-move="down"]').focus(); }
         }).catch(function (err) { alertMessage(err.message); });
@@ -895,29 +951,32 @@
         }),
         el('button', {
           type: 'button', className: 'button danger small', text: '削除',
-          'aria-label': label + '「' + name + '」を削除',
+          'aria-label': def.label + '「' + name + '」を削除',
           onClick: function () {
-            if (!window.confirm(label + '「' + name + '」を一覧から外します（保存済みの投稿はそのまま残ります）。よろしいですか？')) { return; }
-            var action = type === 'category' ? 'removeCategory' : 'removeTag';
-            gasCall({ action: action, name: name }).then(function (json) {
+            if (!window.confirm(def.label + '「' + name + '」を一覧から外します' + def.removeNote + '。よろしいですか？')) { return; }
+            gasCall({ action: def.remove, name: name }).then(function (json) {
               updateBootLists(json);
-              announce(label + '「' + name + '」を外しました');
-              $(type === 'category' ? 'categoryManageHeading' : 'tagManageHeading').focus();
+              announce(def.label + '「' + name + '」を外しました');
+              $(def.heading).focus();
             }).catch(function (err) { alertMessage(err.message); });
           }
         })
       ]));
     });
+    if (!names.length) {
+      container.appendChild(el('li', { text: 'まだありません' }));
+    }
   }
 
   function addListItem(type) {
-    var input = $(type === 'category' ? 'newCategory' : 'newTag');
+    var def = LIST_UI[type];
+    var input = $(def.input);
     var name = input.value.trim();
     if (!name) { alertMessage('名前を入れてください'); input.focus(); return; }
-    gasCall({ action: type === 'category' ? 'addCategory' : 'addTag', name: name }).then(function (json) {
+    gasCall({ action: def.add, name: name }).then(function (json) {
       updateBootLists(json);
       input.value = '';
-      announce((type === 'category' ? 'カテゴリ' : 'タグ') + '「' + name + '」を追加しました');
+      announce(def.label + '「' + name + '」を追加しました');
     }).catch(function (err) { alertMessage(err.message); input.focus(); });
   }
 
@@ -1029,6 +1088,7 @@
     });
     $('addCategoryButton').addEventListener('click', function () { addListItem('category'); });
     $('addTagButton').addEventListener('click', function () { addListItem('tag'); });
+    $('addAuthorButton').addEventListener('click', function () { addListItem('author'); });
     $('clearTimingButton').addEventListener('click', function () {
       writeStorage(TIMING_KEY, []);
       renderTimings();

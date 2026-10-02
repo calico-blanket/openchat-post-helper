@@ -339,3 +339,8 @@ textarea { resize: vertical; }
 .edit-details > summary::before { content: "▸"; }
 .edit-details[open] > summary::before { content: "▾"; }
 .edit-details[open] > summary { margin-bottom: 8px; }
+
+/* ---- 投稿者名の候補ボタン。押された状態は色と ✓ の両方で示す ---- */
+.pick-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pick-button[aria-pressed="true"] { background: var(--primary); color: #fff; }
+.pick-button[aria-pressed="true"]::before { content: "✓ "; }

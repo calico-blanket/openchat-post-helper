@@ -13,7 +13,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（投稿者・発信者の候補）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
 | `summarize` | `text` `length: "half" \| "3lines"` | `summary` |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
@@ -24,6 +24,8 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | `reorderCategories` | `categories: []` | `categories` |
 | `addTag` / `removeTag` | `name` | `tags` |
 | `reorderTags` | `tags: []` | `tags` |
+| `addAuthor` / `removeAuthor` | `name` | `authors`（投稿者・発信者の候補。0件も可） |
+| `reorderAuthors` | `authors: []` | `authors` |
 
 ### analyze の結果
 
