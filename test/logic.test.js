@@ -127,27 +127,37 @@ test('pickTemplate: 名前が空なら _noAuthor を使い、{author} を残さ�
   assert.strictEqual(L.pickTemplate({ a: '{author}です', other: 'その他' }, 'a', ''), 'その他');
 });
 
-test('buildTalkBody: スケジュール型は日時行に「本日」を付け、出典行と定型句を自動で付ける', () => {
+test('buildTalkBody: スケジュール型は概略を載せず「いつ・どこで」を並べ、出典行と定型句を自動で付ける', () => {
   const body = L.buildTalkBody({
-    title: '街頭演説のお知らせ',
-    summary: '駅前で街頭演説を行います。\nぜひお越しください。',
+    title: 'バイブコーディング勉強会・交流会',
+    summary: '・サポーター主催の勉強会\n・初心者歓迎',
     kind: 'schedule',
     source: 'slack',
     author: '',
-    event: { date: '2026-10-03', startTime: '19:00', endTime: '', place: '神戸駅前', performers: '山田、佐藤', deadline: '' }
+    event: {
+      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（高崎）＆オンライン',
+      performers: '山田、佐藤', deadline: '2026-10-20'
+    }
   }, CONFIG, '2026-10-03');
   assert.strictEqual(body, [
-    '【街頭演説のお知らせ】',
-    '駅前で街頭演説を行います。',
-    'ぜひお越しください。',
+    '【バイブコーディング勉強会・交流会】',
     '',
-    '📅 本日 10/3(土) 19:00〜',
-    '📍 神戸駅前',
+    '📅 10/24(土) 13:00〜17:00',
+    '📍 対面（高崎）＆オンライン',
     '🎤 出演: 山田、佐藤',
+    '⏰ 申込締切: 10/20(火)',
     '',
     'Slackからの転載です。',
-    '詳細はスレッドで ➡️'
+    '詳細はスレッドにて ➡️'
   ].join('\n'));
+});
+
+test('buildTalkBody: スケジュール型でも、日時が空なら日時の行は出さない（未確定の日時を言い切らない）', () => {
+  const body = L.buildTalkBody({
+    title: '限定配信', summary: '・要点', kind: 'schedule', source: 'slack',
+    event: { date: '', startTime: '', endTime: '', place: 'オンライン', performers: '', deadline: '' }
+  }, CONFIG, '2026-10-03');
+  assert.strictEqual(body, '【限定配信】\n\n📍 オンライン\n\nSlackからの転載です。\n詳細はスレッドにて ➡️');
 });
 
 test('buildTalkBody: 相対表現はコピーする日によって変わる（前日なら「明日」、2日前なら無し）', () => {
@@ -163,7 +173,9 @@ test('buildTalkBody: 記事型は日時行を出さず、X は投稿者名入り
   }, CONFIG, '2026-10-03');
   assert.ok(!body.includes('📅'));
   assert.ok(body.includes('Xから、山田太郎さんの投稿です。'));
-  assert.ok(body.endsWith('詳細はスレッドで ➡️'));
+  // 記事型は概略を載せる
+  assert.ok(body.startsWith('【政策の解説】\n要点です。'));
+  assert.ok(body.endsWith('詳細はスレッドにて ➡️'));
 });
 
 // ---- スレッド: 前置き＋原文、原文を一字も変えない -------------------
@@ -347,6 +359,6 @@ test('Slack の前置き: 名前があれば「発信者は○○です。」を
 
 test('Slack のトーク本体の出典行は、名前があっても変えない', () => {
   const body = L.buildTalkBody({ title: 'T', summary: '・要点', kind: 'article', source: 'slack', author: '運営アカウント' }, CONFIG, '2026-10-03');
-  assert.ok(body.includes('Slackからの転載です。\n詳細はスレッドで'));
+  assert.ok(body.includes('Slackからの転載です。\n詳細はスレッドにて'));
   assert.ok(!body.includes('運営アカウント'));
 });

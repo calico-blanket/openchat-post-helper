@@ -242,7 +242,7 @@
   /**
    * トーク本体（オープンチャットのトークに貼る文）を組み立てる。
    *   【タイトル】
-   *   概略
+   *   概略（スケジュール型では載せない）
    *   （スケジュール型のみ）日時・場所・出演者・申込締切の行
    *   出典行
    *   詳細はスレッドで ➡️
@@ -257,8 +257,9 @@
     // 原文の見出しの【】がタイトルに残っていても、【【…】】と二重にしない
     var title = stripTitleBrackets(post.title);
     if (title) { head.push('【' + title + '】'); }
+    // スケジュール型は「いつ・どこで」を最初に伝えるため概略を載せない（内容はスレッドの原文で読める）
     var summary = String(post.summary || '').trim();
-    if (summary) { head.push(summary); }
+    if (summary && post.kind !== 'schedule') { head.push(summary); }
     if (head.length) { blocks.push(head.join('\n')); }
 
     if (post.kind === 'schedule') {
