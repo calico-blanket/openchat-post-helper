@@ -51,13 +51,19 @@ function fakeGeminiAnalyze(payload) {
   const hasImage = parts.length > 1;
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const isEvent = hasImage || /日時|開催/.test(text);
+  // 「開催日時（開始）：2026-10-24 13:00」形式があれば、その日時を使う
+  const start = text.match(/開催日時（開始）：\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+  const end = text.match(/開催日時（終了）：\s*\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2})/);
+  const hybrid = /現地|対面/.test(text) && /オンライン/.test(text);
+  const area = (text.match(/高崎|神戸|渋谷/) || [''])[0];
   const result = {
-    title: (lines[0] || 'チラシの告知').slice(0, 30),
-    summary: (lines.slice(0, 4).join('\n') || 'チラシの内容です。'),
-    eventDate: isEvent ? tokyoDate(1) : '',
-    startTime: isEvent ? '19:00' : '',
-    endTime: '',
-    place: isEvent ? '神戸駅前' : '',
+    title: (lines[0] || 'チラシの告知').replace(/^【[^】]*】\s*/, '').slice(0, 30),
+    summaryPoints: lines.slice(1, 4).length ? lines.slice(1, 4) : ['チラシの内容'],
+    eventDate: start ? start[1] : (isEvent ? tokyoDate(1) : ''),
+    startTime: start ? start[2] : (isEvent ? '19:00' : ''),
+    endTime: end ? end[1] : '',
+    attendance: !isEvent ? 'unknown' : (hybrid ? 'hybrid' : 'in_person'),
+    area: isEvent ? (area || '神戸駅前') : '',
     deadline: '',
     performers: isEvent ? '山田太郎' : '',
     imageText: hasImage ? '（偽の読み取り結果）\n街頭演説会\n明日 19:00〜 神戸駅前' : '',

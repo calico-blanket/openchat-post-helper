@@ -235,8 +235,7 @@ function handleAnalyze_(body) {
     source: source,
     today: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd'),
     categories: categories,
-    tags: tags,
-    classify: !useJev
+    tags: tags
   })];
   if (useJev) {
     requests.push(buildJevRequest_(jevKey, {
@@ -256,19 +255,26 @@ function handleAnalyze_(body) {
   result.dateUncertain = gemini.dateUncertain;
   result.dateNote = gemini.dateNote;
 
-  if (!useJev) {
-    result.kind = gemini.kind;
-    result.category = gemini.category;
-    result.tags = gemini.tags;
-  } else {
+  // 種別・カテゴリ・タグは、Jev が使えれば Jev の判定を、使えなければ Gemini の判定を使う
+  var classification = { kind: gemini.kind, category: gemini.category, tags: gemini.tags };
+  if (useJev) {
     try {
       var jev = parseJevResponse_(responses[1], categories, tags);
-      result.kind = jev.kind;
-      result.category = jev.category;
-      result.tags = jev.tags;
+      classification = {
+        kind: jev.kind || gemini.kind,
+        category: jev.category || gemini.category,
+        tags: jev.tags
+      };
     } catch (jevErr) {
-      warnings.push('Jev による分類に失敗しました（種別・カテゴリ・タグは手で選んでください）: ' + jevErr.message);
+      warnings.push('Jev による分類に失敗したため、Gemini の判定を使いました（GAS エディタで testJev を実行すると詳しい原因がわかります）: ' + jevErr.message);
     }
+  }
+  result.kind = classification.kind;
+  result.category = classification.category;
+  result.tags = classification.tags;
+  // 開催日が取れているのに種別が決まらないときは、日時の行を出すためスケジュール型として扱う
+  if (!result.kind && result.event.date) {
+    result.kind = 'schedule';
   }
 
   // 画像だけの告知は、画像から読み取った文章をスレッド用の原文にする
@@ -598,17 +604,26 @@ function codePointToString_(code) {
 
 /**
  * analyze 用の Gemini リクエスト（UrlFetchApp.fetchAll に渡す形）を作る純粋関数。
- * options.classify が true のときだけ、種別・カテゴリ・タグも判定させる（Jev が無いとき）。
+ * 種別・カテゴリ・タグも毎回判定させる（Jev があれば Jev を優先し、Gemini の判定は失敗時の予備にする）。
  */
 function buildGeminiAnalyzeRequest_(options) {
   var kindKeys = APP_CONFIG.kinds.map(function (k) { return k.key; });
   var properties = {
     title: { type: 'STRING', description: '投稿のタイトル。30文字以内。【】は付けない' },
-    summary: { type: 'STRING', description: '概略。「・」で始まる箇条書きを2〜5行。1行に1つの要点を、短く体言止めで（例: ・サポーター・党員限定の生配信）。です・ます体は使わず、文末に「。」は付けない。出典や「詳細はスレッドで」は書かない' },
+    summaryPoints: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+      description: '概略の要点を2〜5個。1要素に1つの要点を、短く体言止めで（例: サポーター・党員限定の生配信）。行頭の「・」、です・ます体、文末の「。」は付けない。出典や「詳細はスレッドにて」は書かない'
+    },
     eventDate: { type: 'STRING', description: '開催日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     startTime: { type: 'STRING', description: '開始時刻。HH:MM（24時間制）。無ければ空文字' },
     endTime: { type: 'STRING', description: '終了時刻。HH:MM（24時間制）。無ければ空文字' },
-    place: { type: 'STRING', description: '開催場所。無ければ空文字' },
+    attendance: {
+      type: 'STRING',
+      enum: ['in_person', 'online', 'hybrid', 'unknown'],
+      description: '開催形式。in_person=対面（現地）のみ、online=オンラインのみ、hybrid=対面とオンラインの両方、unknown=開催の告知でない・書かれていない'
+    },
+    area: { type: 'STRING', description: '対面の場合の地名を数文字で（例: 高崎、神戸三宮、渋谷）。会場名・住所・階数は書かない。対面でなければ空文字' },
     deadline: { type: 'STRING', description: '申込締切日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     performers: { type: 'STRING', description: '出演者・登壇者。複数なら「、」区切り。無ければ空文字' },
     imageText: { type: 'STRING', description: '画像がある場合、画像内の文字を読みやすく整えた文章。事実は変えない。画像が無ければ空文字' },
@@ -616,19 +631,17 @@ function buildGeminiAnalyzeRequest_(options) {
     dateUncertain: { type: 'BOOLEAN', description: '開催日時が確定していない（「AまたはB」「いずれか」「未定」「調整中」など）なら true。そのとき eventDate・startTime・endTime は空文字にする' },
     dateNote: { type: 'STRING', description: 'dateUncertain が true のとき、原文に書かれた日時の候補や状況をそのまま短く（例: 10月7日または10月8日、21:30〜）。それ以外は空文字' }
   };
-  var required = ['title', 'summary', 'eventDate', 'startTime', 'endTime', 'place', 'deadline', 'performers', 'imageText', 'flyerWeekday', 'dateUncertain', 'dateNote'];
+  var required = ['title', 'summaryPoints', 'eventDate', 'startTime', 'endTime', 'attendance', 'area', 'deadline', 'performers', 'imageText', 'flyerWeekday', 'dateUncertain', 'dateNote'];
 
-  if (options.classify) {
-    properties.kind = { type: 'STRING', enum: kindKeys, description: '種別' };
-    required.push('kind');
-    if (options.categories.length) {
-      properties.category = { type: 'STRING', enum: options.categories, description: 'カテゴリ' };
-      required.push('category');
-    }
-    if (options.tags.length) {
-      properties.tags = { type: 'ARRAY', items: { type: 'STRING', enum: options.tags }, description: '当てはまるタグ（0個以上）' };
-      required.push('tags');
-    }
+  properties.kind = { type: 'STRING', enum: kindKeys, description: '種別' };
+  required.push('kind');
+  if (options.categories.length) {
+    properties.category = { type: 'STRING', enum: options.categories, description: 'カテゴリ' };
+    required.push('category');
+  }
+  if (options.tags.length) {
+    properties.tags = { type: 'ARRAY', items: { type: 'STRING', enum: options.tags }, description: '当てはまるタグ（0個以上）' };
+    required.push('tags');
   }
 
   var kindGuide = APP_CONFIG.kinds.map(function (k) { return '- ' + k.key + ': ' + k.description; }).join('\n');
@@ -638,8 +651,9 @@ function buildGeminiAnalyzeRequest_(options) {
     '日付は今日（' + options.today + '）を基準に、年を補って YYYY-MM-DD の絶対日付にしてください。「明日」などの相対表現は使わないでください。',
     '曜日は計算しないでください。画像やチラシに曜日が書かれている場合だけ、書かれている曜日を flyerWeekday に入れてください。',
     '日時が確定していない場合（候補が複数ある、未定、調整中など）は、日付を1つに決めつけず、dateUncertain を true にして eventDate・startTime・endTime を空にしてください。',
-    '概略は「・」で始まる箇条書きにし、要点だけを簡潔に書きます。各行はできるだけ体言止めにし（例: 「配信を行います。」ではなく「生配信を実施」）、です・ます体は使わず、文末の「。」も付けません。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドで」は書かないでください。',
-    options.classify ? '種別の定義:\n' + kindGuide : ''
+    '概略（summaryPoints）は要点を1つずつ配列にし、簡潔に書きます。各要点はできるだけ体言止めにし（例: 「配信を行います。」ではなく「生配信を実施」）、です・ます体は使わず、文末の「。」も付けません。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドにて」は書かないでください。',
+    '開催場所は、開催形式（attendance）と、対面の場合の短い地名（area）に分けてください。会場名や住所はスレッドの原文に残るので、area には書きません。',
+    '種別の定義:\n' + kindGuide
   ].join('\n');
 
   var userText = [
@@ -715,13 +729,16 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
   return {
     // トーク本体で【】を付けるので、AI が付けてきた外側の【】は外す（中にも【】があるものはそのまま）
     title: str(json.title).replace(/^【([^【】]*)】?$/, '$1').trim(),
-    summary: normalizeSummaryBullets_(str(json.summary)),
+    // 要点の配列で返させる（改行の有無に左右されないため）。古い形式の文字列にも対応する
+    summary: Object.prototype.toString.call(json.summaryPoints) === '[object Array]'
+      ? joinSummaryPoints_(json.summaryPoints)
+      : normalizeSummaryBullets_(str(json.summary)),
     kind: findByKey_(APP_CONFIG.kinds, kindKey) ? kindKey : '',
     event: {
       date: uncertain ? '' : date(json.eventDate),
       startTime: uncertain ? '' : time(json.startTime),
       endTime: uncertain ? '' : time(json.endTime),
-      place: str(json.place),
+      place: buildPlaceLabel_(str(json.attendance), str(json.area)) || str(json.place),
       deadline: date(json.deadline),
       performers: str(json.performers)
     },
@@ -753,6 +770,39 @@ function normalizeSummaryBullets_(text) {
   return lines.map(function (line) {
     return '・' + line.replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '').replace(/。+$/, '');
   }).join('\n');
+}
+
+/**
+ * 概略の要点の配列を「・」の箇条書きにする純粋関数。
+ * 要素の中の「・」（「サポーター・党員」など）は区切りとして扱わない。
+ */
+function joinSummaryPoints_(points) {
+  return points
+    .filter(function (p) { return typeof p === 'string'; })
+    .map(function (p) {
+      return p.trim().replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '').replace(/。+$/, '').trim();
+    })
+    .filter(function (p) { return p; })
+    .map(function (p) { return '・' + p; })
+    .join('\n');
+}
+
+/**
+ * 開催形式と地名から、トーク用の短い場所の表記を作る純粋関数（書式は Config.gs の placeLabels）。
+ *   hybrid + 高崎 → 対面（高崎）＆オンライン ／ online → オンライン ／ in_person + 高崎 → 対面（高崎）
+ *   形式が不明で地名だけあれば地名をそのまま、どちらも無ければ空文字
+ */
+function buildPlaceLabel_(attendance, area) {
+  var labels = APP_CONFIG.placeLabels || {};
+  var name = String(area || '').trim();
+  var pick = function (key) {
+    var template = name ? labels[key] : labels[key + '_noArea'];
+    if (template === undefined) { template = labels[key] || ''; }
+    return String(template).replace(/\{area\}/g, name);
+  };
+  if (attendance === 'online') { return labels.online || 'オンライン'; }
+  if (attendance === 'in_person' || attendance === 'hybrid') { return pick(attendance); }
+  return name;
 }
 
 /** 'YYYY-MM-DD' が実在する日付か */
@@ -1277,6 +1327,36 @@ function handleReorderList_(requested, type) {
   var result = { ok: true };
   result[def.key] = normalized;
   return result;
+}
+
+// ---- 診断用 -----------------------------------------------------
+
+/**
+ * Jev への接続を試す（GAS エディタで実行し、「実行ログ」を見る）。
+ * 実際の analyze と同じ形のリクエストを、短いテスト文で1回だけ送る。API キーはログに出さない。
+ */
+function testJev() {
+  var key = getProperty_('TYPESAFE_API_KEY');
+  if (!key) {
+    Logger.log('TYPESAFE_API_KEY が未設定です');
+    return;
+  }
+  var categories = getCategories_();
+  var tags = getTags_();
+  var request = buildJevRequest_(key, {
+    url: '',
+    text: '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。'
+  }, categories, tags);
+  Logger.log('送信する質問: ' + Object.keys(JSON.parse(request.payload).questions).join(', ') +
+    '（カテゴリ ' + categories.length + ' 件、タグ ' + tags.length + ' 件）');
+  var response = UrlFetchApp.fetchAll([request])[0];
+  Logger.log('HTTP ' + response.getResponseCode());
+  Logger.log('応答: ' + String(response.getContentText()).slice(0, 1000));
+  try {
+    Logger.log('判定結果: ' + JSON.stringify(parseJevResponse_(response, categories, tags)));
+  } catch (err) {
+    Logger.log('判定結果を読めませんでした: ' + err.message);
+  }
 }
 
 // ---- 承認用 -----------------------------------------------------

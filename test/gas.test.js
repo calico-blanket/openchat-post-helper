@@ -382,8 +382,8 @@ test('カテゴリ・タグ: 追加・重複拒否・削除・並べ替え（集
 /** analyze の Gemini 応答のひな形 */
 function geminiAnalyze(overrides = {}) {
   return Object.assign({
-    title: '街頭演説', summary: '1行目\n2行目\n3行目\n4行目', kind: 'schedule',
-    eventDate: '2026-10-03', startTime: '19:00', endTime: '', place: '神戸駅前', deadline: '',
+    title: '街頭演説', summaryPoints: ['1行目', '2行目', '3行目'], kind: 'schedule',
+    eventDate: '2026-10-03', startTime: '19:00', endTime: '', attendance: 'in_person', area: '神戸駅前', deadline: '',
     performers: '山田太郎', imageText: '', flyerWeekday: '', category: 'イベント', tags: []
   }, overrides);
 }
@@ -479,7 +479,7 @@ test('analyze: Jev のキーがあれば Gemini と並列（fetchAll）で呼び
   const r = post(env, { action: 'analyze', text: '本文'.repeat(5000) });
   assert.strictEqual(env.calls.length, 2);
   const geminiPayload = JSON.parse(env.calls[0].payload);
-  assert.strictEqual(geminiPayload.generationConfig.responseSchema.properties.kind, undefined, 'Jev があれば Gemini に分類させない');
+  assert.ok(geminiPayload.generationConfig.responseSchema.properties.kind, 'Jev が失敗したときの予備として Gemini にも分類させる');
   const jevPayload = JSON.parse(env.calls[1].payload);
   assert.strictEqual(env.calls[1].headers.Authorization, 'Bearer jev-key');
   assert.strictEqual(jevPayload.state.text.length, 8000, 'Jev に渡す本文は設定の文字数で切る');
@@ -488,15 +488,36 @@ test('analyze: Jev のキーがあれば Gemini と並列（fetchAll）で呼び
   assert.deepStrictEqual(r.tags, ['政策']);
 });
 
-test('analyze: Jev が失敗しても全体は失敗にせず、警告を返す', () => {
+test('analyze: Jev が失敗しても全体は失敗にせず、Gemini の分類を使って警告を返す', () => {
   const env = load({
     props: { TYPESAFE_API_KEY: 'jev-key' },
-    fetch: (url) => (url.includes('typesafe') ? res(500, 'error') : geminiRes(geminiAnalyze()))
+    fetch: (url) => (url.includes('typesafe') ? res(500, 'error') : geminiRes(geminiAnalyze({ kind: 'article', category: 'お知らせ' })))
   });
   const r = post(env, { action: 'analyze', text: '本文' });
   assert.strictEqual(r.ok, true);
-  assert.strictEqual(r.kind, '');
-  assert.ok(r.warnings.some((w) => /Jev/.test(w)));
+  assert.strictEqual(r.kind, 'article');
+  assert.strictEqual(r.category, 'お知らせ');
+  assert.ok(r.warnings.some((w) => /Jev による分類に失敗したため、Gemini の判定を使いました/.test(w)));
+  assert.ok(r.warnings.some((w) => /testJev/.test(w)));
+});
+
+test('analyze: Jev が種別を決められなかった項目は Gemini の判定で埋める', () => {
+  const env = load({
+    props: { TYPESAFE_API_KEY: 'jev-key' },
+    fetch: (url) => (url.includes('typesafe')
+      ? res(200, { answers: { kind: { type: 'choice', choice: 'c99' } } })
+      : geminiRes(geminiAnalyze({ kind: 'schedule', category: 'イベント' })))
+  });
+  const r = post(env, { action: 'analyze', text: '本文' });
+  assert.strictEqual(r.kind, 'schedule');
+  assert.strictEqual(r.category, 'イベント');
+});
+
+test('analyze: 種別が決まらなくても開催日が取れていればスケジュール型にする（日時の行を出すため）', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({ kind: '不明な値' })) });
+  assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).kind, 'schedule');
+  const env2 = load({ fetch: () => geminiRes(geminiAnalyze({ kind: '不明な値', eventDate: '' })) });
+  assert.strictEqual(post(env2, { action: 'analyze', text: '本文' }).kind, '');
 });
 
 test('analyze: X の URL は oEmbed で本文と投稿者名を取り、末尾が「…」なら途中切れを警告する', () => {
@@ -642,16 +663,69 @@ test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段�
   assert.strictEqual(n('  \n  '), '');
 });
 
-test('analyze: 概略は箇条書きにそろえて返し、プロンプトでも箇条書きを指示する', () => {
-  const env = load({ fetch: () => geminiRes(geminiAnalyze({ summary: '配信を行います。アーカイブも残します。' })) });
+test('analyze: 概略は要点の配列で受け取り、1要点1行の箇条書きにする（要点の中の「・」では分けない）', () => {
+  const env = load({
+    fetch: () => geminiRes(geminiAnalyze({
+      summaryPoints: ['・サポーター・党員限定の生配信。', '現地とオンラインのハイブリッド開催', '', 3, '1. 初心者歓迎']
+    }))
+  });
   const r = post(env, { action: 'analyze', text: '本文' });
-  assert.strictEqual(r.summary, '・配信を行います\n・アーカイブも残します');
+  assert.strictEqual(r.summary, '・サポーター・党員限定の生配信\n・現地とオンラインのハイブリッド開催\n・初心者歓迎');
   const payload = JSON.parse(env.calls[0].payload);
-  assert.match(payload.generationConfig.responseSchema.properties.summary.description, /箇条書き/);
-  assert.match(payload.generationConfig.responseSchema.properties.summary.description, /体言止め/);
-  assert.match(payload.systemInstruction.parts[0].text, /箇条書き/);
+  const schema = payload.generationConfig.responseSchema;
+  assert.strictEqual(schema.properties.summaryPoints.type, 'ARRAY');
+  assert.match(schema.properties.summaryPoints.description, /体言止め/);
+  assert.ok(schema.required.includes('summaryPoints'));
   assert.match(payload.systemInstruction.parts[0].text, /体言止め/);
   assert.match(payload.systemInstruction.parts[0].text, /です・ます体は使わず/);
+});
+
+test('analyze: 古い形式（概略が文字列）で返ってきても箇条書きにそろえる', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({ summaryPoints: undefined, summary: '配信を行います。アーカイブも残します。' })) });
+  assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).summary, '・配信を行います\n・アーカイブも残します');
+});
+
+test('analyze: 場所は開催形式と地名から「対面（高崎）＆オンライン」の形に組み立てる', () => {
+  const cases = [
+    [{ attendance: 'hybrid', area: '高崎' }, '対面（高崎）＆オンライン'],
+    [{ attendance: 'hybrid', area: '' }, '対面＆オンライン'],
+    [{ attendance: 'in_person', area: '神戸三宮' }, '対面（神戸三宮）'],
+    [{ attendance: 'in_person', area: '' }, '対面'],
+    [{ attendance: 'online', area: '高崎' }, 'オンライン'],
+    [{ attendance: 'unknown', area: '高崎' }, '高崎'],
+    [{ attendance: 'unknown', area: '' }, '']
+  ];
+  for (const [input, expected] of cases) {
+    const env = load({ fetch: () => geminiRes(geminiAnalyze(input)) });
+    assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).event.place, expected, JSON.stringify(input));
+  }
+  const env = load({ fetch: () => geminiRes(geminiAnalyze()) });
+  post(env, { action: 'analyze', text: '本文' });
+  const schema = JSON.parse(env.calls[0].payload).generationConfig.responseSchema;
+  assert.deepStrictEqual(Array.from(schema.properties.attendance.enum), ['in_person', 'online', 'hybrid', 'unknown']);
+  assert.strictEqual(schema.properties.place, undefined);
+});
+
+test('testJev: 短いテスト文で Jev を1回呼び、HTTP の結果をログに出す（API キーは出さない）', () => {
+  const logs = [];
+  const env = load({
+    props: { TYPESAFE_API_KEY: 'jev-secret-key' },
+    fetch: () => res(401, '{"error":"Error communicating with server. Please check your API key and try again."}')
+  });
+  env.context.Logger.log = (m) => logs.push(String(m));
+  env.context.testJev();
+  assert.strictEqual(env.calls.length, 1);
+  assert.match(env.calls[0].url, /typesafe/);
+  assert.ok(logs.some((l) => l === 'HTTP 401'));
+  assert.ok(logs.some((l) => /送信する質問: kind, category/.test(l)));
+  assert.ok(logs.every((l) => !l.includes('jev-secret-key')));
+  // キーが無ければ通信しない
+  const env2 = load();
+  const logs2 = [];
+  env2.context.Logger.log = (m) => logs2.push(String(m));
+  env2.context.testJev();
+  assert.strictEqual(env2.calls.length, 0);
+  assert.match(logs2[0], /未設定/);
 });
 
 test('analyze: 日時が未確定なら、AI が日付を入れてきても日時を空にし、候補のメモを返す', () => {
@@ -667,7 +741,7 @@ test('analyze: 日時が未確定なら、AI が日付を入れてきても日�
   assert.strictEqual(r.event.date, '');
   assert.strictEqual(r.event.startTime, '');
   assert.strictEqual(r.event.endTime, '');
-  assert.strictEqual(r.event.place, '神戸駅前', '日時以外の項目は残す');
+  assert.strictEqual(r.event.place, '対面（神戸駅前）', '日時以外の項目は残す');
   const schema = JSON.parse(env.calls[0].payload).generationConfig.responseSchema;
   assert.ok(schema.required.includes('dateUncertain'));
 });

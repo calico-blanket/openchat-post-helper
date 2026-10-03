@@ -58,12 +58,21 @@ var APP_CONFIG = {
 
   // トーク本体の定型句
   talk: {
-    detailsLine: '詳細はスレッドで ➡️',
+    detailsLine: '詳細はスレッドにて ➡️',
     // 日時行。{relative} は「本日」「明日」（コピーする時点で計算。どちらでもなければ空）
     dateLine: '📅 {relative}{date}{time}',
     placeLine: '📍 {place}',
     performersLine: '🎤 出演: {performers}',
     deadlineLine: '⏰ 申込締切: {deadline}'
+  },
+
+  // 開催場所の表記（AI が返す「開催形式」と「地名」から組み立てる。{area} は地名）
+  placeLabels: {
+    in_person: '対面（{area}）',
+    in_person_noArea: '対面',
+    online: 'オンライン',
+    hybrid: '対面（{area}）＆オンライン',
+    hybrid_noArea: '対面＆オンライン'
   },
 
   // スレッド（詳細）の前置き（入力元に応じて自動で付ける。画面で編集できる）
