@@ -38,9 +38,10 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章 |
 | `originalFromImage` | 原文が画像からの読み取りか |
 | `title` `summary` `kind` | タイトル、概略、種別（`schedule`／`article`／`legislator`） |
-| `event` | `{ date, startTime, endTime, place, deadline, performers }`（日付は ISO の絶対日付。曜日は返さない） |
+| `event` | `{ date, startTime, endTime, place, deadline, performers }`（日付は ISO の絶対日付。曜日は返さない。`place` は「対面（高崎）＆オンライン」のような短い表記で、AI が返す開催形式と地名から `Config.gs` の `placeLabels` で組み立てる） |
 | `imageText` `flyerWeekday` | 画像から読み取った文字と、チラシに書かれた曜日（1文字） |
-| `category` `tags` | 分類（Jev のキーがあれば Jev、なければ Gemini） |
+| `kind` `category` `tags` の決め方 | Gemini が毎回判定し、Jev のキーがあれば Jev の判定を優先する（Jev が失敗・判定できなければ Gemini の値）。種別が決まらず開催日があれば `schedule` |
+| `category` `tags` | 分類 |
 | `legislatorTags` | 議員名一覧との文字列一致（投稿者名・タイトル・原文が対象） |
 | `duplicate` | 同じ URL の保存済み投稿 |
 | `warnings` | 取得の失敗、X の途中切れ、Jev の失敗など |
