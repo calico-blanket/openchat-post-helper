@@ -151,7 +151,8 @@ function createSheetStub() {
 
 function createGasContext() {
   const sheets = {};
-  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key' };
+  // 公開の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
+  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', ARCHIVE_PUBLIC: 'true' };
   const pad = (n) => String(n).padStart(2, '0');
   const context = {
     SpreadsheetApp: {
@@ -205,7 +206,17 @@ const gas = createGasContext();
 // ---- HTTP サーバー -----------------------------------------------
 
 const server = http.createServer((req, res) => {
-  const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  const requestUrl = new URL(req.url, 'http://localhost');
+  const urlPath = decodeURIComponent(requestUrl.pathname);
+
+  // 公開の一覧の入口（GET ?action=archive）。合言葉なし
+  if (urlPath === '/mock-gas' && req.method === 'GET') {
+    const parameter = Object.fromEntries(requestUrl.searchParams.entries());
+    const output = gas.doGet({ parameter });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(output.getContent());
+    return;
+  }
 
   if (urlPath === '/mock-gas' && req.method === 'POST') {
     let body = '';

@@ -1074,3 +1074,63 @@ test('bootstrap: 保存先スプレッドシートの URL を返し、合言葉�
   const noToken = load({ props: { SHARED_TOKEN: undefined } });
   assert.strictEqual(post(noToken, { action: 'bootstrap' }, '').spreadsheetUrl, undefined);
 });
+
+// ---- 公開の一覧（GET ?action=archive） -----------------------------------
+
+/** doGet を ?action=archive で呼ぶ（合言葉なし） */
+function getArchive(env) {
+  return JSON.parse(env.context.doGet({ parameter: { action: 'archive' } }).getContent());
+}
+
+test('公開の一覧: ARCHIVE_PUBLIC が "true" でなければ返さない（初期状態は止めておく）', () => {
+  const env = load();
+  post(env, validPost({ memo: '秘密のメモ' }));
+  const r = getArchive(env);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /公開されていません/);
+  assert.strictEqual(r.items, undefined);
+  const env2 = load({ props: { ARCHIVE_PUBLIC: 'yes' } });
+  assert.strictEqual(getArchive(env2).ok, false, '"true" 以外は止めたまま');
+});
+
+test('公開の一覧: 公開してよい項目だけを新しい順に返し、メモと ID は返さない（合言葉なし）', () => {
+  const env = load({ props: { ARCHIVE_PUBLIC: 'TRUE' } });
+  post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: '秘密のメモ' }));
+  post(env, validPost({
+    url: 'https://example.com/new', title: '新しい', memo: '秘密のメモ2', author: '運営アカウント',
+    kind: 'schedule', source: 'note', eventIso: '2026-10-24T13:00+09:00', place: '対面（高崎）＆オンライン',
+    talk: 'トーク本文', original: '原文', joinUrl: 'https://www.youtube.com/live/abc', applyUrl: 'https://forms.gle/x'
+  }));
+  const r = getArchive(env);
+  assert.strictEqual(r.ok, true, r.error);
+  assert.deepStrictEqual(r.items.map((i) => i.title), ['新しい', '古い']);
+  const item = r.items[0];
+  assert.deepStrictEqual(Object.keys(item).sort(), [
+    'applyUrl', 'author', 'category', 'deadline', 'eventIso', 'joinUrl', 'kind', 'kindLabel', 'original',
+    'performers', 'place', 'savedAt', 'sourceLabel', 'summary', 'tags', 'talk', 'title', 'url'
+  ]);
+  assert.strictEqual(item.kindLabel, 'スケジュール');
+  assert.strictEqual(item.sourceLabel, 'note');
+  assert.strictEqual(item.original, '原文');
+  const text = JSON.stringify(r);
+  assert.ok(!text.includes('秘密のメモ'), 'メモは出さない');
+  assert.ok(!/uuid-/.test(text), 'ID は出さない');
+  assert.ok(!text.includes(TOKEN) && !text.includes('gemini-key'), '合言葉・API キーは出さない');
+});
+
+test('toPublicItem_: http(s) 以外の URL は空にする', () => {
+  const { context } = load();
+  const p = context.toPublicItem_({ kind: 'article', source: 'slack', url: 'javascript:alert(1)', joinUrl: 'ftp://x', applyUrl: 'https://ok.example/', tags: [] });
+  assert.strictEqual(p.url, '');
+  assert.strictEqual(p.joinUrl, '');
+  assert.strictEqual(p.applyUrl, 'https://ok.example/');
+});
+
+test('doGet: archive 以外の GET は何も返さない／bootstrap は公開の状態を返す', () => {
+  const env = load({ props: { ARCHIVE_PUBLIC: 'true' } });
+  const r = JSON.parse(env.context.doGet({ parameter: { action: 'search' } }).getContent());
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.items, undefined);
+  assert.strictEqual(post(env, { action: 'bootstrap' }).archivePublic, true);
+  assert.strictEqual(post(load(), { action: 'bootstrap' }).archivePublic, false);
+});

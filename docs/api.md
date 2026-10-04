@@ -1,7 +1,13 @@
 # GAS の API 仕様
 
 GAS の Web アプリ URL に、**すべて POST** で JSON を送ります（`Content-Type: text/plain;charset=utf-8`。GAS は CORS のプリフライトに応答できないため）。
-GET は何も返しません（合言葉を URL に載せてログに残さないため）。
+GET は「公開の一覧」（`?action=archive`）だけを受け付けます。それ以外の API は、合言葉を URL に載せてログに残さないよう、すべて POST です。
+
+### 公開の一覧（GET `?action=archive`、合言葉不要）
+
+- スクリプトプロパティ `ARCHIVE_PUBLIC` が `true`（大文字小文字は問わない）のときだけ `{ ok: true, teamName, items }` を返す。それ以外は `{ ok: false, error }`。
+- `items` は新しい順。各項目は `savedAt` `kind` `kindLabel` `sourceLabel` `category` `title` `summary` `tags` `eventIso` `place` `deadline` `performers` `author` `talk` `original` `url` `joinUrl` `applyUrl` だけ（**メモと ID は返さない**）。URL は http(s) のものだけ。
+- 読むだけで、シートを書き換えない（見出しが足りない場合に右端へ見出しを足すことだけはある）。
 
 ## 共通
 
@@ -13,7 +19,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（公開の一覧が有効か）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
 | `summarize` | `text` `length: "half" \| "3lines"` | `summary` |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |

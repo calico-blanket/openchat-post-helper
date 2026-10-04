@@ -603,6 +603,95 @@
     return 'オンライン会議の URL が入っています（' + hits.join('、') + '）。公開のオープンチャットに載せると、関係のない人が入ってくるおそれがあります。公開してよい URL か確認してください。';
   }
 
+  // ---- 公開の一覧（archive.html） ---------------------------------
+
+  /** 公開の一覧で、開催日時を「10/24(土) 13:00〜17:00」の形にする（無ければ空文字） */
+  function archiveEventLabel(eventIso) {
+    var ev = parseEventIso(eventIso);
+    var date = formatDateJa(ev.date);
+    if (!date) { return ''; }
+    return ev.startTime ? date + ' ' + ev.startTime + '〜' + (ev.endTime || '') : date;
+  }
+
+  /** 'YYYY-MM-DD …' を「10/3」の形にする（読めなければそのまま） */
+  function shortDateLabel(text) {
+    var m = String(text || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? Number(m[2]) + '/' + Number(m[3]) : String(text || '');
+  }
+
+  var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel', 'kindLabel'];
+
+  /**
+   * 公開の一覧に並べる行を作る純粋関数。
+   *   options.q        検索のことば（タイトル・本文・原文・発信者・場所などのどれかに含まれる。大文字小文字を区別しない）
+   *   options.upcoming true なら、開催日が今日以降のものだけ
+   *   options.sortKey  'saved'（登録日）| 'kind' | 'title' | 'event'（開催日）| 'author'
+   *   options.dir      'asc' | 'desc'（開催日・登録日などの空の値は、向きにかかわらず最後）
+   *   options.today    'YYYY-MM-DD'（日本時間の今日）
+   *   options.limit    表示する件数の上限（省略時は全件）
+   * 登録日で並べるときは、月が変わるところに区切りの行（type: 'month'）を入れる。
+   * @returns {{ rows: Array, total: number, shown: number, hasMore: boolean }}
+   */
+  function buildArchiveView(items, options) {
+    var opt = options || {};
+    var q = String(opt.q || '').trim().toLowerCase();
+    var sortKey = opt.sortKey || 'saved';
+    var dir = opt.dir === 'asc' ? 1 : -1;
+    var today = opt.today || '';
+
+    var filtered = (items || []).filter(function (item) {
+      if (opt.upcoming) {
+        var date = parseEventIso(item.eventIso).date;
+        if (!date || date < today) { return false; }
+      }
+      if (!q) { return true; }
+      var haystack = ARCHIVE_SEARCH_FIELDS.map(function (key) { return String(item[key] || ''); })
+        .concat([(item.tags || []).join(' ')]).join('\n').toLowerCase();
+      return haystack.indexOf(q) !== -1;
+    });
+
+    var valueOf = function (item) {
+      if (sortKey === 'event') { return parseEventIso(item.eventIso).date + 'T' + (parseEventIso(item.eventIso).startTime || ''); }
+      if (sortKey === 'kind') { return String(item.kindLabel || ''); }
+      if (sortKey === 'title') { return String(item.title || ''); }
+      if (sortKey === 'author') { return String(item.author || ''); }
+      return String(item.savedAt || '');
+    };
+    var sorted = filtered.map(function (item, index) { return { item: item, index: index, value: valueOf(item) }; });
+    sorted.sort(function (a, b) {
+      var x = a.value === 'T' ? '' : a.value;
+      var y = b.value === 'T' ? '' : b.value;
+      if (x === y) { return a.index - b.index; }
+      if (!x) { return 1; }
+      if (!y) { return -1; }
+      var c = (sortKey === 'title' || sortKey === 'author' || sortKey === 'kind') ? x.localeCompare(y, 'ja') : (x < y ? -1 : 1);
+      return c * dir;
+    });
+
+    var limit = opt.limit > 0 ? opt.limit : sorted.length;
+    var shownItems = sorted.slice(0, limit);
+    var rows = [];
+    var lastMonth = null;
+    shownItems.forEach(function (entry) {
+      var item = entry.item;
+      if (sortKey === 'saved') {
+        var m = String(item.savedAt || '').match(/^(\d{4})-(\d{2})/);
+        var month = m ? m[1] + '-' + m[2] : '';
+        if (month !== lastMonth) {
+          rows.push({ type: 'month', label: m ? m[1] + '年' + Number(m[2]) + '月' : '登録日なし' });
+          lastMonth = month;
+        }
+      }
+      rows.push({
+        type: 'item',
+        item: item,
+        savedLabel: shortDateLabel(item.savedAt),
+        eventLabel: archiveEventLabel(item.eventIso)
+      });
+    });
+    return { rows: rows, total: sorted.length, shown: shownItems.length, hasMore: sorted.length > shownItems.length };
+  }
+
   // ---- その他 ---------------------------------------------------
 
   /** 配列の index 番目を delta(+1/-1) 方向の隣と入れ替えた新しい配列（範囲外は何もしない） */
@@ -645,6 +734,8 @@
     summaryWarnings: summaryWarnings,
     uncertainDateWarning: uncertainDateWarning,
     meetingUrlWarning: meetingUrlWarning,
+    archiveEventLabel: archiveEventLabel,
+    buildArchiveView: buildArchiveView,
     moveArrayItem: moveArrayItem
   };
 }));
