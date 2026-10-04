@@ -628,7 +628,8 @@
       var number = index + 1;
       var label = m.kind === 'url' ? number + '通目（URL だけ）' : number + '通目';
       var headingId = 'threadMessage' + number;
-      var pre = el('pre', { className: 'message-preview', tabindex: '0', 'aria-labelledby': headingId });
+      // 直前の見出し（「1通目（○文字）」）で何のメッセージかわかるので、pre には名前を付けない
+      var pre = el('pre', { className: 'message-preview' });
       pre.textContent = m.text;
       var button = el('button', {
         type: 'button', className: 'button secondary', text: label + 'をコピー',

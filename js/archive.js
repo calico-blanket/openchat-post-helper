@@ -220,8 +220,9 @@
         }
       }));
       if (origOpen) {
-        children.push(el('p', {
-          id: originalId, className: 'text-box original-box', tabindex: '0', 'aria-label': '原文', text: original
+        // スクロールできる長い原文は、キーボードでも動かせるよう名前付きの領域にする
+        children.push(el('div', {
+          id: originalId, className: 'text-box original-box', role: 'region', tabindex: '0', 'aria-label': '原文', text: original
         }));
       }
     }
