@@ -46,6 +46,8 @@ function createSheetStub() {
     },
     setFrozenRows() {},
     getLastRow() { return values.length; },
+    // 見出し行など、いちばん長い行の長さ（実際のスプレッドシートの最終列に相当）
+    getLastColumn() { return values.reduce((m, r) => Math.max(m, r ? r.length : 0), 0); },
     getRange(row, col, numRows = 1, numCols = 1) {
       return {
         getValues() {
@@ -159,6 +161,15 @@ function post(env, body, token = TOKEN) {
   return JSON.parse(env.context.doPost({ postData: { contents: JSON.stringify(payload) } }).getContent());
 }
 
+/** 見出しの名前で、シートのセルの値を読む（rowIndex は 0 が見出し行。raw=true なら書き込まれた生の値） */
+function cell(env, rowIndex, headerName, raw = false) {
+  const header = Array.from(env.sheet().values[0]);
+  const index = header.indexOf(headerName);
+  assert.ok(index !== -1, '見出し「' + headerName + '」が無い');
+  const rows = raw ? env.sheet().raw : env.sheet().values;
+  return rows[rowIndex][index];
+}
+
 /** 保存用の最小限の正しい入力 */
 function validPost(overrides = {}) {
   return Object.assign({
@@ -242,21 +253,21 @@ test('数式インジェクション対策: = + - @ で始まる値も、日付�
   }
 });
 
-test('save: 1行1件で、ヘッダーどおりの列に書き込む（種別・ソースは表示名）', () => {
+test('save: 1行1件で、見出しの名前どおりの列に書き込む（新しいシートは発信者が種別とソースの間）', () => {
   const env = load();
-  const r = post(env, validPost({ kind: 'schedule', tags: [], eventIso: '2026-10-03T19:00+09:00', deadline: '2026-10-01', memo: 'メモ' }));
+  const r = post(env, validPost({ kind: 'schedule', tags: [], eventIso: '2026-10-03T19:00+09:00', deadline: '2026-10-01', memo: 'メモ', author: '運営アカウント' }));
   assert.strictEqual(r.ok, true);
-  const [header, row] = env.sheet().values;
-  assert.deepStrictEqual(Array.from(header), [
-    '登録日時', '種別', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
+  assert.deepStrictEqual(Array.from(env.sheet().values[0]), [
+    '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
     'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
-    '発信者', 'トーク本文', '参加URL', '申込URL'
+    'トーク本文', '参加URL', '申込URL'
   ]);
-  assert.strictEqual(row[1], 'スケジュール');
-  assert.strictEqual(row[2], 'Slack');
-  assert.strictEqual(row[9], '2026-10-03T19:00+09:00');
-  assert.strictEqual(row[11], '2026-10-01');
-  assert.strictEqual(row[14], r.id);
+  assert.strictEqual(cell(env, 1, '種別'), 'スケジュール');
+  assert.strictEqual(cell(env, 1, '発信者'), '運営アカウント');
+  assert.strictEqual(cell(env, 1, 'ソース'), 'Slack');
+  assert.strictEqual(cell(env, 1, '開催日時（ISO）'), '2026-10-03T19:00+09:00');
+  assert.strictEqual(cell(env, 1, '申込締切'), '2026-10-01');
+  assert.strictEqual(cell(env, 1, 'ID'), r.id);
 });
 
 test('save: 入力の検証（タイトル・種別・カテゴリ・タグ・日時の形式・存在しない日付）', () => {
@@ -310,15 +321,14 @@ test('normalizeUrlForCompare_: 正規化の規則', () => {
 test('update: 登録日時と ID は変えずに内容を書き換える／delete: 行を消す', () => {
   const env = load();
   const saved = post(env, validPost());
-  const before = env.sheet().values[1].slice();
+  const savedAt = cell(env, 1, '登録日時');
   const r = post(env, validPost({ action: 'update', id: saved.id, title: '新タイトル', memo: '=1+1' }));
   assert.strictEqual(r.ok, true, r.error);
-  const after = env.sheet().values[1];
-  assert.strictEqual(after[0], before[0]);
-  assert.strictEqual(after[4], '新タイトル');
-  assert.strictEqual(after[13], '=1+1');
-  assert.strictEqual(env.sheet().raw[1][13], "'=1+1");
-  assert.strictEqual(after[14], saved.id);
+  assert.strictEqual(cell(env, 1, '登録日時'), savedAt);
+  assert.strictEqual(cell(env, 1, 'タイトル'), '新タイトル');
+  assert.strictEqual(cell(env, 1, 'メモ'), '=1+1');
+  assert.strictEqual(cell(env, 1, 'メモ', true), "'=1+1");
+  assert.strictEqual(cell(env, 1, 'ID'), saved.id);
   assert.match(post(env, validPost({ action: 'update', id: 'none' })).error, /見つかりません/);
   assert.strictEqual(post(env, { action: 'delete', id: saved.id }).ok, true);
   assert.strictEqual(env.sheet().values.length, 1);
@@ -343,28 +353,75 @@ test('右側（申込URL の右）に列を追加しても、読み取り・編�
   assert.strictEqual(env.sheet().values[1][19], 'TRUE');
 });
 
-test('既存のシート（ID までの15列）には、発信者〜申込URL の見出しを自動で足し、古い行は空欄のまま読める', () => {
+test('既存のシート（以前の15列の並び）には、足りない見出しを右端に足し、古い行も新しい行も名前どおりに読み書きする', () => {
   const env = load();
-  post(env, validPost({ title: '古い行' }));
-  // 15列だった頃のシートを再現する
-  env.sheet().values[0] = env.sheet().values[0].slice(0, 15);
-  env.sheet().values[1] = env.sheet().values[1].slice(0, 15);
+  post(env, validPost({ url: '' })); // シートを作らせる
+  const oldHeader = ['登録日時', '種別', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
+    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID'];
+  const oldRow = ['2026-10-01 10:00:00', '記事', 'note', 'お知らせ', '古い行', '概略', 'https://example.com/old',
+    '原文', '', '', '', '', '', '', 'old-id'];
+  env.sheet().values.length = 0;
+  env.sheet().raw.length = 0;
+  env.sheet().values.push(oldHeader.slice(), oldRow.slice());
+  env.sheet().raw.push(oldHeader.slice(), oldRow.slice());
+
   const item = post(env, { action: 'search' }).items[0];
   assert.strictEqual(item.title, '古い行');
+  assert.strictEqual(item.source, 'note');
   assert.strictEqual(item.author, '');
-  assert.strictEqual(item.talk, '');
   assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL']);
+
+  assert.strictEqual(post(env, validPost({ url: '', title: '新しい行', author: '運営アカウント', talk: 'トーク' })).ok, true);
+  assert.strictEqual(cell(env, 2, 'タイトル'), '新しい行');
+  assert.strictEqual(cell(env, 2, '発信者'), '運営アカウント');
+  assert.strictEqual(cell(env, 2, 'トーク本文'), 'トーク');
+  assert.strictEqual(cell(env, 1, '発信者'), undefined, '古い行の新しい列は空のまま');
 });
 
-test('16〜19列目に自分で足した別の列があれば、上書きせずに止める', () => {
+test('列を並べ替えても、自分で足した列がどこにあっても、名前どおりに読み書きし、足した列には触らない', () => {
   const env = load();
-  post(env, validPost());
-  env.sheet().values[0][15] = '投稿済み';
-  const r = post(env, validPost({ url: '' }));
-  assert.strictEqual(r.ok, false);
-  assert.match(r.error, /16 列目の見出しが「投稿済み」/);
-  assert.match(r.error, /申込URL」の列より右へ移して/);
-  assert.strictEqual(env.sheet().values.length, 2, '保存していない');
+  post(env, validPost({ url: '' })); // シートを作らせる
+  // 発信者を2列目へ移し、4列目に自分の列「投稿済み」を足したシートを再現する
+  const header = ['登録日時', '発信者', '種別', '投稿済み', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
+    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
+    'トーク本文', '参加URL', '申込URL'];
+  env.sheet().values.length = 0;
+  env.sheet().raw.length = 0;
+  env.sheet().values.push(header.slice());
+  env.sheet().raw.push(header.slice());
+
+  const saved = post(env, validPost({ url: '', title: 'A', author: '須田英太郎', kind: 'legislator', source: 'note' }));
+  assert.strictEqual(saved.ok, true, saved.error);
+  assert.strictEqual(cell(env, 1, '発信者'), '須田英太郎');
+  assert.strictEqual(cell(env, 1, '種別'), '議員活動');
+  assert.strictEqual(cell(env, 1, 'ソース'), 'note');
+  assert.strictEqual(cell(env, 1, '投稿済み'), '', '自分の列は空欄のまま');
+  assert.strictEqual(env.sheet().values[0].length, header.length, '見出しは増えない');
+
+  // 自分の列に値を入れてから編集しても、その値は残る
+  env.sheet().values[1][3] = 'TRUE';
+  assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, url: '', title: 'A2', author: '広報', kind: 'legislator', source: 'note' })).ok, true);
+  assert.strictEqual(cell(env, 1, '投稿済み'), 'TRUE');
+  assert.strictEqual(cell(env, 1, 'タイトル'), 'A2');
+  assert.strictEqual(cell(env, 1, '発信者'), '広報');
+  const item = post(env, { action: 'search' }).items[0];
+  assert.deepStrictEqual([item.title, item.author, item.kind, item.source], ['A2', '広報', 'legislator', 'note']);
+});
+
+test('同じ見出しが2つあれば左の列を使い、見出しが空の列や知らない見出しの列は無視する', () => {
+  const env = load();
+  post(env, validPost({ url: '' }));
+  const { context } = env;
+  const sheet = env.sheet();
+  sheet.values.length = 0;
+  sheet.raw.length = 0;
+  sheet.values.push(['タイトル', '', 'タイトル', '別の列']);
+  sheet.raw.push(sheet.values[0].slice());
+  const ctx = context.openSheet_();
+  assert.strictEqual(ctx.cols.title, 1);
+  // 足りない項目は右端（5列目以降）に足される
+  assert.strictEqual(ctx.cols.savedAt, 5);
+  assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 18);
 });
 
 test('search: 新しい順・キーワードは原文も対象・カテゴリ/種別/タグ(AND)で絞り込み・50件ずつ', () => {
@@ -890,12 +947,12 @@ test('保存: Instagram・Threads も入力元として保存でき、表示名�
   assert.strictEqual(post(env, validPost({ source: 'threads', url: 'https://www.threads.net/@u/post/B' })).ok, true);
   const items = post(env, { action: 'search' }).items;
   assert.deepStrictEqual(items.map((i) => i.source), ['threads', 'instagram']);
-  assert.deepStrictEqual(env.sheet().values.slice(1).map((r) => r[2]), ['Instagram', 'Threads']);
+  assert.deepStrictEqual([cell(env, 1, 'ソース'), cell(env, 2, 'ソース')], ['Instagram', 'Threads']);
 });
 
 // ---- 記録項目（発信者・トーク本文・参加URL・申込URL） --------------------------
 
-test('保存・更新: 発信者・トーク本文・参加URL・申込URL を16〜19列目に保存し、検索結果で復元する', () => {
+test('保存・更新: 発信者・トーク本文・参加URL・申込URL を保存し、検索結果で復元する', () => {
   const env = load();
   const talk = '【勉強会】\n\n📅 10/24(土) 13:00〜\n=手で直した行\n\nSlackからの転載です。';
   const saved = post(env, validPost({
@@ -903,10 +960,10 @@ test('保存・更新: 発信者・トーク本文・参加URL・申込URL を16
     joinUrl: 'https://www.youtube.com/live/abc', applyUrl: 'https://forms.gle/xyz'
   }));
   assert.strictEqual(saved.ok, true, saved.error);
-  const row = env.sheet().values[1];
-  assert.deepStrictEqual(Array.from(row).slice(15, 19), ['運営アカウント', talk, 'https://www.youtube.com/live/abc', 'https://forms.gle/xyz']);
+  const names = ['発信者', 'トーク本文', '参加URL', '申込URL'];
+  assert.deepStrictEqual(names.map((n) => cell(env, 1, n)), ['運営アカウント', talk, 'https://www.youtube.com/live/abc', 'https://forms.gle/xyz']);
   // 数式インジェクション対策は新しい列にも効く
-  assert.ok(env.sheet().raw[1].slice(15, 19).every((c) => c.charAt(0) === "'"));
+  assert.ok(names.every((n) => cell(env, 1, n, true).charAt(0) === "'"));
   const item = post(env, { action: 'search' }).items[0];
   assert.strictEqual(item.author, '運営アカウント');
   assert.strictEqual(item.talk, talk);
@@ -969,4 +1026,40 @@ test('findUrlInText_: 追跡用パラメーターや末尾の句読点の違い�
 test('発信者の候補: 管理画面の名前は「発信者の候補」', () => {
   const env = load();
   assert.match(post(env, { action: 'removeAuthor', name: 'いない人' }).error, /存在しない発信者の候補です/);
+});
+
+test('writeCellsInRuns_: 隣り合った列はまとめて書き、離れた列は分けて書く（書き込み回数を減らす）', () => {
+  const env = load();
+  post(env, validPost({ url: '' }));
+  const sheet = env.sheet();
+  const calls = [];
+  const original = sheet.getRange.bind(sheet);
+  sheet.getRange = (row, col, numRows, numCols) => {
+    const range = original(row, col, numRows, numCols);
+    const setValues = range.setValues;
+    range.setValues = (v) => { calls.push([col, numCols]); return setValues(v); };
+    return range;
+  };
+  env.context.writeCellsInRuns_(sheet, 1, [
+    { col: 3, value: 'c' }, { col: 2, value: 'b' }, { col: 4, value: 'd' }, { col: 7, value: 'g' }
+  ]);
+  assert.deepStrictEqual(calls, [[2, 3], [7, 1]]);
+  assert.deepStrictEqual([sheet.values[0][1], sheet.values[0][2], sheet.values[0][3], sheet.values[0][6]], ['b', 'c', 'd', 'g']);
+});
+
+test('update: 新しいシートの並びなら、編集の書き込みは3回以内で済む', () => {
+  const env = load();
+  const saved = post(env, validPost());
+  const sheet = env.sheet();
+  let writes = 0;
+  const original = sheet.getRange.bind(sheet);
+  sheet.getRange = (row, col, numRows, numCols) => {
+    const range = original(row, col, numRows, numCols);
+    const setValues = range.setValues;
+    range.setValues = (v) => { if (row === 2) { writes++; } return setValues(v); };
+    return range;
+  };
+  assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, title: '更新' })).ok, true);
+  assert.ok(writes >= 1 && writes <= 3, '書き込み回数: ' + writes);
+  assert.strictEqual(cell(env, 1, 'タイトル'), '更新');
 });

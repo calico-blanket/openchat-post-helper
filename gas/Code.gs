@@ -28,19 +28,24 @@ var TAGS_PROPERTY = 'TAGS_JSON';
 var AUTHORS_PROPERTY = 'AUTHORS_JSON';
 
 // 保存先シート。1行1件。
-// 16列目以降（発信者〜申込URL）は後から追加した列。既存のシートには、次に開いたときに見出しを自動で足す。
-// 自分で列を増やすときは、いちばん右（申込URL の右）に追加すれば既存の処理は壊れない
+// 列は「見出しの名前」で読み書きする（列の位置は決め打ちしない）。そのため、
+//   - スプレッドシート上で列を並べ替えても、アプリはそのまま動く
+//   - 利用者が自分で足した列（「投稿済み」など）は、どの位置にあっても触らない
+//   - 見出しが見つからない列は、右端に自動で足す
+// 見出しの文字を書き換えると、アプリは別の列として扱い、右端に新しい列を作る点に注意
 var SHEET_NAME = '投稿一覧';
-var HEADER = [
-  '登録日時', '種別', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
-  'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
-  '発信者', 'トーク本文', '参加URL', '申込URL'
+// 新しくシートを作るときの並び順
+var FIELD_ORDER = [
+  'savedAt', 'kind', 'author', 'source', 'category', 'title', 'summary', 'url', 'original', 'tags',
+  'eventIso', 'place', 'deadline', 'performers', 'memo', 'id', 'talk', 'joinUrl', 'applyUrl'
 ];
-var COL = {
-  SAVED_AT: 1, KIND: 2, SOURCE: 3, CATEGORY: 4, TITLE: 5, SUMMARY: 6, URL: 7,
-  ORIGINAL: 8, TAGS: 9, EVENT: 10, PLACE: 11, DEADLINE: 12, PERFORMERS: 13, MEMO: 14, ID: 15,
-  AUTHOR: 16, TALK: 17, JOIN_URL: 18, APPLY_URL: 19
+var FIELD_HEADERS = {
+  savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
+  title: 'タイトル', summary: '概略', url: 'URL', original: 'スレッド詳細（原文）', tags: 'タグ',
+  eventIso: '開催日時（ISO）', place: '場所', deadline: '申込締切', performers: '出演者', memo: 'メモ',
+  id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL'
 };
+var HEADER = FIELD_ORDER.map(function (key) { return FIELD_HEADERS[key]; });
 var PAGE_SIZE = 50;
 
 // 画像の上限（base64 の文字数。Gemini のリクエスト全体は 20MB まで）
@@ -994,42 +999,54 @@ function matchLegislators_(text, legislators) {
 
 // ---- 保存・一覧（スプレッドシート） ---------------------------------
 
-/** 保存先シートを返す。無ければ作り、空ならヘッダー行を書く。既存のシートは見出しを補う */
-function getSheet_() {
+/**
+ * 保存先シートと、列の対応表（項目名 → 列番号。1始まり）を返す。
+ * シートが無ければ作り、空なら見出し行を書く。見出しが見つからない項目は右端に足す。
+ */
+function openSheet_() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = spreadsheet.getSheetByName(SHEET_NAME) || spreadsheet.insertSheet(SHEET_NAME);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(HEADER);
     sheet.setFrozenRows(1);
-  } else {
-    ensureHeader_(sheet);
   }
-  return sheet;
+  return { sheet: sheet, cols: ensureColumns_(sheet) };
 }
 
 /**
- * 見出し行を確かめ、後から追加した列（発信者など）の見出しが空なら書き足す。
- * 同じ位置に別の見出し（利用者が自分で足した列）があれば、データを上書きしないよう止める。
+ * 1行目の見出しを読み、項目ごとの列番号を返す。同じ見出しが複数あれば左の列を使う。
+ * 見出しが見つからない項目は、右端の空いている列に見出しを書き足す（既存のデータは動かさない）。
  */
-function ensureHeader_(sheet) {
-  var current = sheet.getRange(1, 1, 1, HEADER.length).getValues()[0];
-  for (var i = 0; i < HEADER.length; i++) {
-    var value = String(current[i] === undefined || current[i] === null ? '' : current[i]).trim();
-    if (!value) {
-      sheet.getRange(1, i + 1, 1, 1).setValues([[HEADER[i]]]);
-    } else if (value !== HEADER[i]) {
-      throw new Error('スプレッドシート「' + SHEET_NAME + '」の ' + (i + 1) + ' 列目の見出しが「' + value +
-        '」になっています。アプリはこの列を「' + HEADER[i] + '」として使うため、自分で足した列は「' +
-        HEADER[HEADER.length - 1] + '」の列より右へ移してください');
+function ensureColumns_(sheet) {
+  var width = Math.max(sheet.getLastColumn(), 1);
+  var header = sheet.getRange(1, 1, 1, width).getValues()[0];
+  var keyByHeader = {};
+  FIELD_ORDER.forEach(function (key) { keyByHeader[FIELD_HEADERS[key]] = key; });
+
+  var cols = {};
+  header.forEach(function (value, index) {
+    var key = keyByHeader[String(value === undefined || value === null ? '' : value).trim()];
+    if (key && !cols[key]) { cols[key] = index + 1; }
+  });
+  var next = width + 1;
+  FIELD_ORDER.forEach(function (key) {
+    if (!cols[key]) {
+      sheet.getRange(1, next, 1, 1).setValues([[FIELD_HEADERS[key]]]);
+      cols[key] = next;
+      next++;
     }
-  }
+  });
+  return cols;
 }
 
-/** データ行（2行目以降、ID 列まで）をすべて読む。右側に足した列は読まない */
-function readDataRows_(sheet) {
-  var lastRow = sheet.getLastRow();
+/** データ行（2行目以降）をすべて読み、{ rowNumber, item } の配列で返す */
+function readEntries_(ctx) {
+  var lastRow = ctx.sheet.getLastRow();
   if (lastRow < 2) { return []; }
-  return sheet.getRange(2, 1, lastRow - 1, HEADER.length).getValues();
+  var width = ctx.sheet.getLastColumn();
+  return ctx.sheet.getRange(2, 1, lastRow - 1, width).getValues().map(function (row, index) {
+    return { rowNumber: index + 2, item: rowToItem_(row, ctx.cols) };
+  });
 }
 
 /**
@@ -1110,62 +1127,64 @@ function normalizeTagsInput_(raw) {
   return out;
 }
 
-/** 保存内容を、シートの1行（ID 列まで）の配列にする */
-function itemToRow_(item, savedAt, id) {
-  var row = [];
-  row[COL.SAVED_AT - 1] = sanitizeCellText_(savedAt);
-  row[COL.KIND - 1] = sanitizeCellText_(findByKey_(APP_CONFIG.kinds, item.kind).label);
-  row[COL.SOURCE - 1] = sanitizeCellText_(findByKey_(APP_CONFIG.sources, item.source).label);
-  row[COL.CATEGORY - 1] = sanitizeCellText_(item.category);
-  row[COL.TITLE - 1] = sanitizeCellText_(item.title);
-  row[COL.SUMMARY - 1] = sanitizeCellText_(item.summary);
-  row[COL.URL - 1] = sanitizeCellText_(item.url);
-  row[COL.ORIGINAL - 1] = sanitizeCellText_(item.original);
-  row[COL.TAGS - 1] = sanitizeCellText_(item.tags.join(', '));
-  row[COL.EVENT - 1] = sanitizeCellText_(item.eventIso);
-  row[COL.PLACE - 1] = sanitizeCellText_(item.place);
-  row[COL.DEADLINE - 1] = sanitizeCellText_(item.deadline);
-  row[COL.PERFORMERS - 1] = sanitizeCellText_(item.performers);
-  row[COL.MEMO - 1] = sanitizeCellText_(item.memo);
-  row[COL.ID - 1] = sanitizeCellText_(id);
-  row[COL.AUTHOR - 1] = sanitizeCellText_(item.author);
-  row[COL.TALK - 1] = sanitizeCellText_(item.talk);
-  row[COL.JOIN_URL - 1] = sanitizeCellText_(item.joinUrl);
-  row[COL.APPLY_URL - 1] = sanitizeCellText_(item.applyUrl);
-  return row;
+/** 保存内容を、項目ごとのセルの値（無害化済み）にする */
+function buildCells_(item, savedAt, id) {
+  var cells = {
+    savedAt: savedAt,
+    kind: findByKey_(APP_CONFIG.kinds, item.kind).label,
+    author: item.author,
+    source: findByKey_(APP_CONFIG.sources, item.source).label,
+    category: item.category,
+    title: item.title,
+    summary: item.summary,
+    url: item.url,
+    original: item.original,
+    tags: item.tags.join(', '),
+    eventIso: item.eventIso,
+    place: item.place,
+    deadline: item.deadline,
+    performers: item.performers,
+    memo: item.memo,
+    id: id,
+    talk: item.talk,
+    joinUrl: item.joinUrl,
+    applyUrl: item.applyUrl
+  };
+  Object.keys(cells).forEach(function (key) { cells[key] = sanitizeCellText_(cells[key]); });
+  return cells;
 }
 
-/** シートの1行を、画面に返す形のオブジェクトにする */
-function rowToItem_(row) {
-  var str = function (col) {
-    var v = row[col - 1];
+/** シートの1行を、列の対応表に従って画面に返す形のオブジェクトにする */
+function rowToItem_(row, cols) {
+  var str = function (key) {
+    var v = row[cols[key] - 1];
     if (v instanceof Date) {
       return Utilities.formatDate(v, TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
     }
     return String(v === undefined || v === null ? '' : v);
   };
-  var kind = findByLabel_(APP_CONFIG.kinds, str(COL.KIND));
-  var source = findByLabel_(APP_CONFIG.sources, str(COL.SOURCE));
+  var kind = findByLabel_(APP_CONFIG.kinds, str('kind'));
+  var source = findByLabel_(APP_CONFIG.sources, str('source'));
   return {
-    id: str(COL.ID).trim(),
-    savedAt: str(COL.SAVED_AT),
+    id: str('id').trim(),
+    savedAt: str('savedAt'),
     kind: kind ? kind.key : '',
     source: source ? source.key : 'other',
-    category: str(COL.CATEGORY),
-    title: str(COL.TITLE),
-    summary: str(COL.SUMMARY),
-    url: str(COL.URL),
-    original: str(COL.ORIGINAL),
-    tags: str(COL.TAGS).split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
-    eventIso: str(COL.EVENT),
-    place: str(COL.PLACE),
-    deadline: str(COL.DEADLINE),
-    performers: str(COL.PERFORMERS),
-    memo: str(COL.MEMO),
-    author: str(COL.AUTHOR),
-    talk: str(COL.TALK),
-    joinUrl: str(COL.JOIN_URL),
-    applyUrl: str(COL.APPLY_URL)
+    category: str('category'),
+    title: str('title'),
+    summary: str('summary'),
+    url: str('url'),
+    original: str('original'),
+    tags: str('tags').split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t; }),
+    eventIso: str('eventIso'),
+    place: str('place'),
+    deadline: str('deadline'),
+    performers: str('performers'),
+    memo: str('memo'),
+    author: str('author'),
+    talk: str('talk'),
+    joinUrl: str('joinUrl'),
+    applyUrl: str('applyUrl')
   };
 }
 
@@ -1230,9 +1249,9 @@ function normalizeUrlForCompare_(url) {
 function findDuplicateByUrl_(url, excludeId) {
   var target = normalizeUrlForCompare_(url);
   if (!target) { return null; }
-  var rows = readDataRows_(getSheet_());
-  for (var i = rows.length - 1; i >= 0; i--) {
-    var item = rowToItem_(rows[i]);
+  var entries = readEntries_(openSheet_());
+  for (var i = entries.length - 1; i >= 0; i--) {
+    var item = entries[i].item;
     if (item.id !== excludeId && normalizeUrlForCompare_(item.url) === target) {
       return { id: item.id, title: item.title, savedAt: item.savedAt };
     }
@@ -1249,17 +1268,42 @@ function handleSave_(body) {
   }
   var savedAt = Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
   var id = Utilities.getUuid();
-  getSheet_().appendRow(itemToRow_(item, savedAt, id));
+  var ctx = openSheet_();
+  var cells = buildCells_(item, savedAt, id);
+  // 自分で足した列は空欄のまま、アプリの列だけを見出しの位置に入れる
+  var row = [];
+  for (var c = 0; c < ctx.sheet.getLastColumn(); c++) { row.push(''); }
+  FIELD_ORDER.forEach(function (key) { row[ctx.cols[key] - 1] = cells[key]; });
+  ctx.sheet.appendRow(row);
   return { ok: true, id: id, savedAt: savedAt };
 }
 
-/** ID から行番号（1始まり、ヘッダー込み）を探す。無ければ -1 */
-function findRowNumberById_(sheet, id) {
-  var rows = readDataRows_(sheet);
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i][COL.ID - 1]).trim() === id) { return i + 2; }
+/**
+ * 1行の中の複数のセルを書き込む。隣り合った列はまとめて1回で書き、書き込みの回数を減らす。
+ * targets: [{ col: 列番号（1始まり）, value: 値 }]
+ */
+function writeCellsInRuns_(sheet, rowNumber, targets) {
+  var sorted = targets.slice().sort(function (a, b) { return a.col - b.col; });
+  var i = 0;
+  while (i < sorted.length) {
+    var start = sorted[i].col;
+    var values = [sorted[i].value];
+    while (i + 1 < sorted.length && sorted[i + 1].col === sorted[i].col + 1) {
+      i++;
+      values.push(sorted[i].value);
+    }
+    sheet.getRange(rowNumber, start, 1, values.length).setValues([values]);
+    i++;
   }
-  return -1;
+}
+
+/** ID から行（{ rowNumber, item }）を探す。無ければ null */
+function findEntryById_(ctx, id) {
+  var entries = readEntries_(ctx);
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].item.id === id) { return entries[i]; }
+  }
+  return null;
 }
 
 /** 編集（action=update）。登録日時と ID はそのまま残す */
@@ -1267,16 +1311,20 @@ function handleUpdate_(body) {
   var id = String(body.id || '').trim();
   if (!id) { throw new Error('編集する投稿が指定されていません'); }
   var item = validatePostInput_(body);
-  var sheet = getSheet_();
-  var rowNumber = findRowNumberById_(sheet, id);
-  if (rowNumber === -1) { throw new Error('編集する投稿が見つかりません（削除された可能性があります）'); }
+  var ctx = openSheet_();
+  var entry = findEntryById_(ctx, id);
+  if (!entry) { throw new Error('編集する投稿が見つかりません（削除された可能性があります）'); }
 
   var duplicate = findDuplicateByUrl_(item.url, id);
   if (duplicate && body.force !== true) {
     return { ok: false, duplicate: duplicate, error: '同じ URL がほかの投稿に保存されています（' + duplicate.title + '）' };
   }
-  var current = rowToItem_(sheet.getRange(rowNumber, 1, 1, HEADER.length).getValues()[0]);
-  sheet.getRange(rowNumber, 1, 1, HEADER.length).setValues([itemToRow_(item, current.savedAt, id)]);
+  // アプリの列だけを書き換える（自分で足した列の値や数式は触らない）。登録日時と ID は変えない
+  var cells = buildCells_(item, entry.item.savedAt, id);
+  var targets = FIELD_ORDER
+    .filter(function (key) { return key !== 'savedAt' && key !== 'id'; })
+    .map(function (key) { return { col: ctx.cols[key], value: cells[key] }; });
+  writeCellsInRuns_(ctx.sheet, entry.rowNumber, targets);
   return { ok: true, id: id };
 }
 
@@ -1284,16 +1332,16 @@ function handleUpdate_(body) {
 function handleDelete_(body) {
   var id = String(body.id || '').trim();
   if (!id) { throw new Error('削除する投稿が指定されていません'); }
-  var sheet = getSheet_();
-  var rowNumber = findRowNumberById_(sheet, id);
-  if (rowNumber === -1) { throw new Error('削除する投稿が見つかりません'); }
-  sheet.deleteRow(rowNumber);
+  var ctx = openSheet_();
+  var entry = findEntryById_(ctx, id);
+  if (!entry) { throw new Error('削除する投稿が見つかりません'); }
+  ctx.sheet.deleteRow(entry.rowNumber);
   return { ok: true, id: id };
 }
 
 /**
  * 一覧・検索（action=search）。カテゴリを横断して新しい順に返す。
- *   keyword: タイトル・概略・原文・メモ・タグ・場所・出演者のどれかに部分一致（大文字小文字を区別しない）
+ *   keyword: タイトル・概略・原文・メモ・タグ・場所・出演者・発信者・トーク本文のどれかに部分一致（大文字小文字を区別しない）
  *   category / kind: 指定したものだけ（空なら全部）
  *   tags: すべてのタグを持つものだけ（AND）
  *   offset: 何件目から（PAGE_SIZE 件ずつ）
@@ -1305,12 +1353,12 @@ function handleSearch_(body) {
   var tags = normalizeTagsInput_(body.tags);
   var offset = Math.max(0, parseInt(body.offset, 10) || 0);
 
-  var rows = readDataRows_(getSheet_());
+  var entries = readEntries_(openSheet_());
   var items = [];
   var matched = 0;
   var hasMore = false;
-  for (var i = rows.length - 1; i >= 0; i--) {
-    var item = rowToItem_(rows[i]);
+  for (var i = entries.length - 1; i >= 0; i--) {
+    var item = entries[i].item;
     if (category && item.category !== category) { continue; }
     if (kind && item.kind !== kind) { continue; }
     if (tags.length && !tags.every(function (t) { return item.tags.indexOf(t) !== -1; })) { continue; }
@@ -1477,7 +1525,7 @@ function testJev() {
  * スプレッドシートと外部通信の権限を承認する（Web アプリ経由では承認画面が出ないため）。
  */
 function authorizeOnce() {
-  getSheet_();
+  openSheet_();
   UrlFetchApp.fetch('https://www.google.com/', { muteHttpExceptions: true });
   Logger.log('承認と初期化が完了しました。合言葉が設定済みか: ' + !!getProperty_('SHARED_TOKEN'));
 }

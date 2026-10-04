@@ -125,6 +125,8 @@ function createSheetStub() {
     deleteRow(n) { values.splice(n - 1, 1); },
     setFrozenRows() {},
     getLastRow() { return values.length; },
+    // 見出し行など、いちばん長い行の長さ（実際のスプレッドシートの最終列に相当）
+    getLastColumn() { return values.reduce((m, r) => Math.max(m, r ? r.length : 0), 0); },
     getRange(row, col, numRows = 1, numCols = 1) {
       return {
         getValues() {
