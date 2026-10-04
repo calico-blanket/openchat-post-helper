@@ -14,6 +14,7 @@
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
 //     ARCHIVE_PUBLIC    "true" にすると、公開の一覧（archive.html）用の読み取り専用の入口が動く（任意）
+//     PUBLIC_SPREADSHEET_ID  公開用スプレッドシートの ID（任意。createPublicSpreadsheet を実行すると自動で入る）
 // ============================================================
 
 // ---- 定数 --------------------------------------------------
@@ -43,10 +44,12 @@ var FIELD_ORDER = [
 var FIELD_HEADERS = {
   savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
   title: 'タイトル', summary: '概略', url: 'URL', original: 'スレッド詳細（原文）', tags: 'タグ',
-  eventIso: '開催日時（ISO）', place: '場所', deadline: '申込締切', performers: '出演者', memo: 'メモ',
+  eventIso: '開催日時（ISO）', place: '場所', deadline: '申込締切', performers: '出演者', memo: 'コメント',
   id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL'
 };
 var HEADER = FIELD_ORDER.map(function (key) { return FIELD_HEADERS[key]; });
+// 以前の見出し（見つかったら今の見出しに書き換える）。memo は、スレッドに添えるコメントの列
+var LEGACY_HEADERS = { 'メモ': 'memo' };
 var PAGE_SIZE = 50;
 
 // 画像の上限（base64 の文字数。Gemini のリクエスト全体は 20MB まで）
@@ -105,6 +108,7 @@ function doPost(e) {
       case 'addAuthor': return jsonResponse_(handleAddListItem_(body, 'author'));
       case 'removeAuthor': return jsonResponse_(handleRemoveListItem_(body, 'author'));
       case 'reorderAuthors': return jsonResponse_(handleReorderList_(body.authors, 'author'));
+      case 'syncPublicSheet': return jsonResponse_(withLock_(function () { return syncPublicSheet_(); }));
       default:
         throw new Error('不明な action です: ' + action);
     }
@@ -178,7 +182,8 @@ function handleBootstrap_() {
     // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
     spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
     archivePublic: getProperty_('ARCHIVE_PUBLIC').toLowerCase() === 'true',
-    usageThisMonth: summarizeUsageThisMonth_()
+    usageThisMonth: summarizeUsageThisMonth_(),
+    publicSpreadsheetUrl: publicSpreadsheetUrl_()
   };
 }
 
@@ -1056,6 +1061,14 @@ function ensureColumns_(sheet) {
     var key = keyByHeader[String(value === undefined || value === null ? '' : value).trim()];
     if (key && !cols[key]) { cols[key] = index + 1; }
   });
+  // 以前の見出し（「メモ」など）があれば、その列を使い、見出しを今の名前に書き換える
+  header.forEach(function (value, index) {
+    var key = LEGACY_HEADERS[String(value === undefined || value === null ? '' : value).trim()];
+    if (key && !cols[key]) {
+      cols[key] = index + 1;
+      sheet.getRange(1, index + 1, 1, 1).setValues([[FIELD_HEADERS[key]]]);
+    }
+  });
   var next = width + 1;
   FIELD_ORDER.forEach(function (key) {
     if (!cols[key]) {
@@ -1303,7 +1316,7 @@ function handleSave_(body) {
   for (var c = 0; c < ctx.sheet.getLastColumn(); c++) { row.push(''); }
   FIELD_ORDER.forEach(function (key) { row[ctx.cols[key] - 1] = cells[key]; });
   ctx.sheet.appendRow(row);
-  return { ok: true, id: id, savedAt: savedAt };
+  return { ok: true, id: id, savedAt: savedAt, publicSheet: syncPublicSheetSafely_() };
 }
 
 /**
@@ -1353,7 +1366,7 @@ function handleUpdate_(body) {
     .filter(function (key) { return key !== 'savedAt' && key !== 'id'; })
     .map(function (key) { return { col: ctx.cols[key], value: cells[key] }; });
   writeCellsInRuns_(ctx.sheet, entry.rowNumber, targets);
-  return { ok: true, id: id };
+  return { ok: true, id: id, publicSheet: syncPublicSheetSafely_() };
 }
 
 /** 削除（action=delete）。行ごと削除する（スプレッドシートの版の履歴からは戻せる） */
@@ -1364,7 +1377,7 @@ function handleDelete_(body) {
   var entry = findEntryById_(ctx, id);
   if (!entry) { throw new Error('削除する投稿が見つかりません'); }
   ctx.sheet.deleteRow(entry.rowNumber);
-  return { ok: true, id: id };
+  return { ok: true, id: id, publicSheet: syncPublicSheetSafely_() };
 }
 
 /**
@@ -1401,6 +1414,138 @@ function handleSearch_(body) {
     items.push(item);
   }
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
+}
+
+// ---- 公開用スプレッドシート（記録一覧タブ） ---------------------------------
+
+// 公開用シートの列の見出し（Config.gs の publicSheet.columns の key → 見出し）
+var PUBLIC_COLUMN_HEADERS = {
+  savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
+  title: 'タイトル', summary: '概略', event: '開催日時', place: '場所', performers: '出演者',
+  deadline: '申込締切', joinUrl: '参加URL', applyUrl: '申込URL', url: '元の投稿のURL', tags: 'タグ',
+  original: 'スレッド詳細（原文）', comment: 'コメント', talk: 'トーク本文'
+};
+var WEEKDAYS_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** 数式の文字列リテラルの中に安全に入れられるよう、ダブルクォートを2つ重ねる純粋関数 */
+function escapeFormulaString_(text) {
+  return String(text === undefined || text === null ? '' : text).replace(/"/g, '""');
+}
+
+/** 'YYYY-MM-DD' を「2026/10/24(土)」にする純粋関数（読めなければ空文字） */
+function sheetDateLabel_(iso) {
+  var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m || !isValidIsoDate_(m[0])) { return ''; }
+  var day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+  return m[1] + '/' + Number(m[2]) + '/' + Number(m[3]) + '(' + WEEKDAYS_JA[day] + ')';
+}
+
+/** 開催日時（ISO）を「2026/10/24(土) 13:00〜17:00」にする純粋関数 */
+function sheetEventLabel_(eventIso) {
+  var text = String(eventIso || '');
+  var date = sheetDateLabel_(text);
+  if (!date) { return ''; }
+  var start = text.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})/);
+  var end = text.match(/\/\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})/);
+  return start ? date + ' ' + start[1] + '〜' + (end ? end[1] : '') : date;
+}
+
+/** 公開の一覧ページで、その投稿を開いた状態にするリンク（archiveUrl が無ければ空文字） */
+function archiveDetailUrl_(publicItem) {
+  var base = String((APP_CONFIG.publicSheet || {}).archiveUrl || '');
+  if (!/^https?:\/\/\S+$/i.test(base)) { return ''; }
+  return base + '?q=' + encodeURIComponent(publicItem.title || '') + '&at=' + encodeURIComponent(publicItem.savedAt || '');
+}
+
+/**
+ * 公開用シートの1セルの値を作る純粋関数。
+ * タイトルは公開の一覧ページへのリンク（HYPERLINK の数式。文字列はダブルクォートを重ねて安全にする）。
+ * それ以外は sanitizeCellText_ で文字列として書く（数式インジェクション対策）。
+ */
+function publicCellValue_(key, p) {
+  if (key === 'title') {
+    var link = archiveDetailUrl_(p);
+    if (link) {
+      return '=HYPERLINK("' + escapeFormulaString_(link) + '","' + escapeFormulaString_(p.title) + '")';
+    }
+    return sanitizeCellText_(p.title);
+  }
+  var values = {
+    kind: p.kindLabel, source: p.sourceLabel, event: sheetEventLabel_(p.eventIso),
+    deadline: sheetDateLabel_(p.deadline), tags: (p.tags || []).join('、')
+  };
+  var value = Object.prototype.hasOwnProperty.call(values, key) ? values[key] : p[key];
+  return sanitizeCellText_(value === undefined || value === null ? '' : value);
+}
+
+/** 公開用スプレッドシートの URL（未設定なら空文字）。ファイルを開かずに組み立てる */
+function publicSpreadsheetUrl_() {
+  var id = getProperty_('PUBLIC_SPREADSHEET_ID');
+  return id ? 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(id) + '/edit' : '';
+}
+
+/**
+ * 公開用スプレッドシートの「記録一覧」タブを、登録用のシートの内容で丸ごと書き直す。
+ * 載せるのは公開の一覧と同じ「公開してよい項目」から、Config.gs の publicSheet.columns の列だけ（ID は載せない）。
+ * PUBLIC_SPREADSHEET_ID が未設定なら何もしない。ほかのタブには触らない。
+ */
+function syncPublicSheet_() {
+  var id = getProperty_('PUBLIC_SPREADSHEET_ID');
+  if (!id) { return { ok: true, skipped: true, count: 0 }; }
+  var conf = APP_CONFIG.publicSheet || {};
+  var tabName = conf.tabName || '記録一覧';
+  var columns = (conf.columns || []).filter(function (key) { return PUBLIC_COLUMN_HEADERS[key]; });
+  if (!columns.length) { throw new Error('公開用シートの列（Config.gs の publicSheet.columns）がありません'); }
+
+  var file = SpreadsheetApp.openById(id);
+  var tab = file.getSheetByName(tabName) || file.insertSheet(tabName);
+  var entries = readEntries_(openSheet_());
+  var rows = [columns.map(function (key) { return PUBLIC_COLUMN_HEADERS[key]; })];
+  for (var i = entries.length - 1; i >= 0; i--) {
+    var p = toPublicItem_(entries[i].item);
+    rows.push(columns.map(function (key) { return publicCellValue_(key, p); }));
+  }
+
+  var oldRows = tab.getLastRow();
+  var oldCols = tab.getLastColumn();
+  if (oldRows > 0 && oldCols > 0) {
+    tab.getRange(1, 1, oldRows, oldCols).clearContent();
+  }
+  tab.getRange(1, 1, rows.length, columns.length).setValues(rows);
+  tab.setFrozenRows(1);
+  tab.getRange(1, 1, 1, columns.length).setFontWeight('bold');
+  // 長い文でも行の高さがそろうよう、折り返さずにセルの幅で切って表示する
+  tab.getRange(1, 1, rows.length, columns.length).setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  return { ok: true, count: rows.length - 1 };
+}
+
+/** 保存・更新・削除のあとに呼ぶ。失敗しても保存自体は止めず、結果を返す */
+function syncPublicSheetSafely_() {
+  try {
+    return syncPublicSheet_();
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+/**
+ * 初回セットアップ用: GAS エディタでこの関数を1回実行すると、公開用スプレッドシートを作り、
+ * スクリプトプロパティ PUBLIC_SPREADSHEET_ID に登録して、「記録一覧」タブを書き込む。
+ * すでに登録済みなら、新しくは作らずに書き直すだけ。
+ */
+function createPublicSpreadsheet() {
+  var tabName = (APP_CONFIG.publicSheet || {}).tabName || '記録一覧';
+  if (!getProperty_('PUBLIC_SPREADSHEET_ID')) {
+    var file = SpreadsheetApp.create(APP_CONFIG.teamName + ' オープンチャット 記録一覧（公開用）');
+    file.getSheets()[0].setName(tabName);
+    PropertiesService.getScriptProperties().setProperty('PUBLIC_SPREADSHEET_ID', file.getId());
+    Logger.log('公開用スプレッドシートを作りました: ' + publicSpreadsheetUrl_());
+  } else {
+    Logger.log('公開用スプレッドシートはすでに登録されています: ' + publicSpreadsheetUrl_());
+  }
+  var result = syncPublicSheet_();
+  Logger.log('「' + tabName + '」タブに ' + result.count + ' 件を書き込みました');
+  Logger.log('次に、このスプレッドシートの共有を「リンクを知っている全員・閲覧者」にしてください');
 }
 
 // ---- 使用量と概算の金額 -----------------------------------------------
@@ -1496,7 +1641,7 @@ function summarizeUsageThisMonth_() {
 /**
  * 公開の一覧（archive.html）に渡す記録を、新しい順に返す。
  * スクリプトプロパティ ARCHIVE_PUBLIC が "true" のときだけ動く（初期状態は止めておく）。
- * 返すのは公開してよい項目だけ（toPublicItem_ の一覧）。メモと ID は返さない。
+ * 返すのは公開してよい項目だけ（toPublicItem_ の一覧）。ID は返さない。
  */
 function handleArchive_() {
   if (getProperty_('ARCHIVE_PUBLIC').toLowerCase() !== 'true') {
@@ -1512,7 +1657,7 @@ function handleArchive_() {
 
 /**
  * 記録の1件を、公開してよい項目だけのオブジェクトにする純粋関数。
- * ここに無い項目（メモ・ID など）は、公開の一覧には出ない。URL は http(s) のものだけ残す。
+ * ここに無い項目（ID など）は、公開の一覧には出ない。URL は http(s) のものだけ残す。
  */
 function toPublicItem_(item) {
   var safeUrl = function (u) { return /^https?:\/\/\S+$/i.test(String(u || '')) ? String(u) : ''; };
@@ -1536,7 +1681,9 @@ function toPublicItem_(item) {
     original: item.original,
     url: safeUrl(item.url),
     joinUrl: safeUrl(item.joinUrl),
-    applyUrl: safeUrl(item.applyUrl)
+    applyUrl: safeUrl(item.applyUrl),
+    // スレッドに添えて投稿したコメント（投稿した内容の一部なので公開する）
+    comment: item.memo
   };
 }
 
@@ -1691,6 +1838,9 @@ function testJev() {
  */
 function authorizeOnce() {
   openSheet_();
+  if (getProperty_('PUBLIC_SPREADSHEET_ID')) {
+    SpreadsheetApp.openById(getProperty_('PUBLIC_SPREADSHEET_ID'));
+  }
   UrlFetchApp.fetch('https://www.google.com/', { muteHttpExceptions: true });
   Logger.log('承認と初期化が完了しました。合言葉が設定済みか: ' + !!getProperty_('SHARED_TOKEN'));
 }

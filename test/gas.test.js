@@ -48,8 +48,20 @@ function createSheetStub() {
     getLastRow() { return values.length; },
     // 見出し行など、いちばん長い行の長さ（実際のスプレッドシートの最終列に相当）
     getLastColumn() { return values.reduce((m, r) => Math.max(m, r ? r.length : 0), 0); },
+    setName(name) { sheet.name = name; },
     getRange(row, col, numRows = 1, numCols = 1) {
       return {
+        clearContent() {
+          for (let r = 0; r < numRows; r++) {
+            const line = values[row - 1 + r];
+            if (!line) { continue; }
+            for (let c = 0; c < numCols; c++) { line[col - 1 + c] = ''; raw[row - 1 + r][col - 1 + c] = ''; }
+          }
+          // 末尾の空の行を詰める（実際の getLastRow と同じく、値のある最後の行を返すため）
+          while (values.length && values[values.length - 1].every((v) => v === '' || v === undefined)) { values.pop(); raw.pop(); }
+        },
+        setFontWeight() {},
+        setWrapStrategy(strategy) { sheet.wrap = strategy; },
         getValues() {
           const out = [];
           for (let r = 0; r < numRows; r++) {
@@ -64,6 +76,7 @@ function createSheetStub() {
         },
         setValues(rows) {
           rows.forEach((line, r) => {
+            while (values.length < row + r) { values.push([]); raw.push([]); }
             line.forEach((v, c) => {
               values[row - 1 + r][col - 1 + c] = store(v);
               raw[row - 1 + r][col - 1 + c] = v;
@@ -104,8 +117,32 @@ function load({ props, fetch } = {}) {
   let uuid = 0;
   let clock = 0;
   const handler = fetch || (() => { throw new Error('想定外の通信'); });
+  // 公開用スプレッドシートなど、別のファイル（id → { sheets }）
+  const files = {};
+  let fileCounter = 0;
+  const makeFile = (id) => {
+    const fileSheets = { 'シート1': createSheetStub() };
+    const file = {
+      id,
+      sheets: fileSheets,
+      getId: () => id,
+      getUrl: () => 'https://docs.google.com/spreadsheets/d/' + id + '/edit',
+      getSheets: () => Object.values(fileSheets),
+      getSheetByName: (name) => Object.values(fileSheets).find((sh) => (sh.name || Object.keys(fileSheets).find((k) => fileSheets[k] === sh)) === name) || null,
+      insertSheet: (name) => { const sh = createSheetStub(); sh.name = name; fileSheets[name] = sh; return sh; }
+    };
+    fileSheets['シート1'].name = 'シート1';
+    files[id] = file;
+    return file;
+  };
   const context = {
     SpreadsheetApp: {
+      WrapStrategy: { CLIP: 'CLIP', WRAP: 'WRAP', OVERFLOW: 'OVERFLOW' },
+      openById: (id) => {
+        if (!files[id]) { throw new Error('スタブ: ファイルが見つかりません ' + id); }
+        return files[id];
+      },
+      create: () => makeFile('public-' + (++fileCounter)),
       getActiveSpreadsheet: () => ({
         getUrl: () => 'https://docs.google.com/spreadsheets/d/test-sheet-id/edit',
         getSheetByName: (name) => sheets[name] || null,
@@ -153,7 +190,11 @@ function load({ props, fetch } = {}) {
   vm.createContext(context);
   vm.runInContext(CONFIG_SOURCE, context);
   vm.runInContext(CODE_SOURCE, context);
-  return { context, calls, props: scriptProps, sheet: () => sheets['投稿一覧'], usageSheet: () => sheets['利用量'] };
+  return {
+    context, calls, props: scriptProps, files, makeFile,
+    sheet: () => sheets['投稿一覧'],
+    usageSheet: () => sheets['利用量']
+  };
 }
 
 /** doPost を呼んで JSON を返す（合言葉は既定で正しいものを付ける） */
@@ -261,7 +302,7 @@ test('save: 1行1件で、見出しの名前どおりの列に書き込む（新
   assert.strictEqual(r.ok, true);
   assert.deepStrictEqual(Array.from(env.sheet().values[0]), [
     '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
-    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
+    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'コメント', 'ID',
     'トーク本文', '参加URL', '申込URL'
   ]);
   assert.strictEqual(cell(env, 1, '種別'), 'スケジュール');
@@ -328,8 +369,8 @@ test('update: 登録日時と ID は変えずに内容を書き換える／delet
   assert.strictEqual(r.ok, true, r.error);
   assert.strictEqual(cell(env, 1, '登録日時'), savedAt);
   assert.strictEqual(cell(env, 1, 'タイトル'), '新タイトル');
-  assert.strictEqual(cell(env, 1, 'メモ'), '=1+1');
-  assert.strictEqual(cell(env, 1, 'メモ', true), "'=1+1");
+  assert.strictEqual(cell(env, 1, 'コメント'), '=1+1');
+  assert.strictEqual(cell(env, 1, 'コメント', true), "'=1+1");
   assert.strictEqual(cell(env, 1, 'ID'), saved.id);
   assert.match(post(env, validPost({ action: 'update', id: 'none' })).error, /見つかりません/);
   assert.strictEqual(post(env, { action: 'delete', id: saved.id }).ok, true);
@@ -1094,7 +1135,7 @@ test('公開の一覧: ARCHIVE_PUBLIC が "true" でなければ返さない（�
   assert.strictEqual(getArchive(env2).ok, false, '"true" 以外は止めたまま');
 });
 
-test('公開の一覧: 公開してよい項目だけを新しい順に返し、メモと ID は返さない（合言葉なし）', () => {
+test('公開の一覧: 公開してよい項目だけを新しい順に返し、ID は返さない（コメントは出す。合言葉なし）', () => {
   const env = load({ props: { ARCHIVE_PUBLIC: 'TRUE' } });
   post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: '秘密のメモ' }));
   post(env, validPost({
@@ -1107,14 +1148,14 @@ test('公開の一覧: 公開してよい項目だけを新しい順に返し、
   assert.deepStrictEqual(r.items.map((i) => i.title), ['新しい', '古い']);
   const item = r.items[0];
   assert.deepStrictEqual(Object.keys(item).sort(), [
-    'applyUrl', 'author', 'category', 'deadline', 'eventIso', 'joinUrl', 'kind', 'kindLabel', 'original',
+    'applyUrl', 'author', 'category', 'comment', 'deadline', 'eventIso', 'joinUrl', 'kind', 'kindLabel', 'original',
     'performers', 'place', 'savedAt', 'sourceLabel', 'summary', 'tags', 'talk', 'title', 'url'
   ]);
   assert.strictEqual(item.kindLabel, 'スケジュール');
   assert.strictEqual(item.sourceLabel, 'note');
   assert.strictEqual(item.original, '原文');
   const text = JSON.stringify(r);
-  assert.ok(!text.includes('秘密のメモ'), 'メモは出さない');
+  assert.strictEqual(item.comment, '秘密のメモ2', 'コメント（スレッドに添えたもの）は出す');
   assert.ok(!/uuid-/.test(text), 'ID は出さない');
   assert.ok(!text.includes(TOKEN) && !text.includes('gemini-key'), '合言葉・API キーは出さない');
 });
@@ -1261,4 +1302,150 @@ test('公開の一覧に使用量は出ない', () => {
   post(env, validPost());
   const text = env.context.doGet({ parameter: { action: 'archive' } }).getContent();
   assert.ok(!/トークン|概算|usage/.test(text));
+});
+
+// ---- 公開用スプレッドシート（記録一覧タブ） --------------------------------------
+
+/** 公開用ファイルを用意し、PUBLIC_SPREADSHEET_ID を設定した環境を作る */
+function loadWithPublicSheet(options = {}) {
+  const env = load(options);
+  const file = env.makeFile('public-sheet-1');
+  env.props.PUBLIC_SPREADSHEET_ID = 'public-sheet-1';
+  env.publicTab = () => file.getSheetByName('記録一覧');
+  return env;
+}
+
+test('公開用シート: 保存すると「記録一覧」タブを新しい順に書き直し、決めた列だけを載せる（ID とトーク本文は載せない）', () => {
+  const env = loadWithPublicSheet();
+  post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: 'コメント1' }));
+  const r = post(env, validPost({
+    url: 'https://example.com/new', title: '新しい', memo: 'コメント2', author: '運営アカウント', kind: 'schedule',
+    eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', deadline: '2026-10-20', place: '対面（高崎）＆オンライン',
+    talk: 'トーク本文はここ', original: '原文', tags: [], joinUrl: 'https://www.youtube.com/live/abc'
+  }));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, count: 2 });
+  const tab = env.publicTab();
+  assert.deepStrictEqual(Array.from(tab.values[0]), [
+    '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', '開催日時', '場所',
+    '出演者', '申込締切', '参加URL', '申込URL', '元の投稿のURL', 'タグ', 'スレッド詳細（原文）', 'コメント'
+  ]);
+  const row = Array.from(tab.values[1]);
+  const header = Array.from(tab.values[0]);
+  const at = (name) => row[header.indexOf(name)];
+  assert.strictEqual(at('種別'), 'スケジュール');
+  assert.strictEqual(at('開催日時'), '2026/10/24(土) 13:00〜17:00');
+  assert.strictEqual(at('申込締切'), '2026/10/20(火)');
+  assert.strictEqual(at('参加URL'), 'https://www.youtube.com/live/abc');
+  assert.strictEqual(at('コメント'), 'コメント2');
+  assert.strictEqual(Array.from(tab.values[2])[header.indexOf('コメント')], 'コメント1', '2行目が古い方');
+  const text = JSON.stringify(tab.values);
+  assert.ok(!text.includes('トーク本文はここ'), 'トーク本文は載せない');
+  assert.ok(!/uuid-/.test(text), 'ID は載せない');
+  assert.strictEqual(tab.wrap, 'CLIP', '長い文は折り返さず、行の高さをそろえる');
+});
+
+test('公開用シート: タイトルは公開の一覧ページでその投稿を開くリンク（数式の中の文字列は安全にする）', () => {
+  const env = loadWithPublicSheet();
+  post(env, validPost({ url: '', title: '勉強会 "特別回" =1+1' }));
+  const tab = env.publicTab();
+  const col = Array.from(tab.values[0]).indexOf('タイトル');
+  const formula = tab.raw[1][col];
+  const savedAt = cell(env, 1, '登録日時');
+  assert.strictEqual(formula,
+    '=HYPERLINK("https://openchat-post-helper.vercel.app/archive.html?q=' + encodeURIComponent('勉強会 "特別回" =1+1') +
+    '&at=' + encodeURIComponent(savedAt) + '","勉強会 ""特別回"" =1+1")');
+  // ほかの列は文字列として書く（数式として動かない）
+  assert.ok(tab.raw[1].filter((v, i) => i !== col && v !== '').every((v) => String(v).charAt(0) === "'"));
+});
+
+test('公開用シート: 更新・削除でも書き直し、前より件数が減ったら余った行は消える', () => {
+  const env = loadWithPublicSheet();
+  const a = post(env, validPost({ url: '', title: 'A' }));
+  post(env, validPost({ url: '', title: 'B' }));
+  // タイトルのセルはリンクの数式なので、スプレッドシートで表示される文字（2つ目の引数）を取り出す
+  const shown = (v) => {
+    const m = String(v).match(/","((?:[^"]|"")*)"\)$/);
+    return m ? m[1].replace(/""/g, '"') : v;
+  };
+  const titleOf = () => env.publicTab().values.slice(1).map((r) => shown(r[Array.from(env.publicTab().values[0]).indexOf('タイトル')]));
+  assert.deepStrictEqual(titleOf(), ['B', 'A']);
+  assert.strictEqual(post(env, validPost({ action: 'update', id: a.id, url: '', title: 'A2' })).publicSheet.ok, true);
+  assert.deepStrictEqual(titleOf(), ['B', 'A2']);
+  assert.strictEqual(post(env, { action: 'delete', id: a.id }).publicSheet.count, 1);
+  assert.deepStrictEqual(titleOf(), ['B']);
+  assert.strictEqual(env.publicTab().getLastRow(), 2);
+});
+
+test('公開用シート: ほかのタブには触らず、「記録一覧」タブが無ければ作る', () => {
+  const env = loadWithPublicSheet();
+  const file = env.files['public-sheet-1'];
+  const top = file.insertSheet('はじめに');
+  top.appendRow(['トップページの内容']);
+  post(env, validPost({ url: '' }));
+  assert.deepStrictEqual(Array.from(file.getSheetByName('はじめに').values[0]), ['トップページの内容']);
+  assert.ok(env.publicTab(), '記録一覧タブを作る');
+});
+
+test('公開用シート: 未設定なら何もしない。書き写しに失敗しても保存は成功し、失敗を返す', () => {
+  const env = load();
+  const r = post(env, validPost());
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, skipped: true, count: 0 });
+
+  const broken = load({ props: { PUBLIC_SPREADSHEET_ID: '存在しないID' } });
+  const r2 = post(broken, validPost());
+  assert.strictEqual(r2.ok, true, '保存自体は成功');
+  assert.strictEqual(r2.publicSheet.ok, false);
+  assert.match(r2.publicSheet.error, /見つかりません/);
+  assert.strictEqual(broken.sheet().values.length, 2, '登録用シートには保存されている');
+});
+
+test('公開用シート: 「作り直す」（syncPublicSheet）と bootstrap の URL', () => {
+  const env = loadWithPublicSheet();
+  post(env, validPost({ url: '' }));
+  env.publicTab().values[1][0] = '手で書き換えた値';
+  const r = post(env, { action: 'syncPublicSheet' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.count, 1);
+  assert.notStrictEqual(env.publicTab().values[1][0], '手で書き換えた値', '作り直すと元に戻る');
+  assert.strictEqual(post(env, { action: 'bootstrap' }).publicSpreadsheetUrl, 'https://docs.google.com/spreadsheets/d/public-sheet-1/edit');
+  assert.strictEqual(post(load(), { action: 'bootstrap' }).publicSpreadsheetUrl, '');
+  assert.match(post(env, { action: 'syncPublicSheet' }, 'wrong').error, /合言葉/);
+});
+
+test('createPublicSpreadsheet: 公開用のファイルを作って ID を登録し、記録一覧を書き込む（2回目は作らない）', () => {
+  const env = load();
+  post(env, validPost({ url: '' }));
+  const logs = [];
+  env.context.Logger.log = (m) => logs.push(String(m));
+  env.context.createPublicSpreadsheet();
+  const id = env.props.PUBLIC_SPREADSHEET_ID;
+  assert.ok(id, 'ID を登録する');
+  const file = env.files[id];
+  assert.ok(file.getSheetByName('記録一覧'), '最初のタブを記録一覧にする');
+  assert.strictEqual(file.getSheetByName('記録一覧').values.length, 2);
+  assert.ok(logs.some((l) => /作りました: https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(l)));
+  assert.ok(logs.some((l) => /リンクを知っている全員・閲覧者/.test(l)));
+  env.context.createPublicSpreadsheet();
+  assert.strictEqual(Object.keys(env.files).length, 1, '2回目は新しく作らない');
+});
+
+test('「メモ」→「コメント」: 既存のシートの見出し「メモ」を「コメント」に書き換え、その列を読み書きする', () => {
+  const env = load();
+  post(env, validPost({ url: '', memo: '前のコメント' }));
+  const header = env.sheet().values[0];
+  const idx = Array.from(header).indexOf('コメント');
+  header[idx] = 'メモ';
+  const item = post(env, { action: 'search' }).items[0];
+  assert.strictEqual(item.memo, '前のコメント');
+  assert.strictEqual(env.sheet().values[0][idx], 'コメント', '見出しを書き換える');
+  assert.strictEqual(Array.from(env.sheet().values[0]).filter((h) => h === 'コメント').length, 1, '新しい列は増えない');
+});
+
+test('sheetEventLabel_・sheetDateLabel_: 公開用シートの日時の表記', () => {
+  const { context } = load();
+  assert.strictEqual(context.sheetEventLabel_('2026-10-24'), '2026/10/24(土)');
+  assert.strictEqual(context.sheetEventLabel_('2026-10-24T13:00+09:00'), '2026/10/24(土) 13:00〜');
+  assert.strictEqual(context.sheetEventLabel_(''), '');
+  assert.strictEqual(context.sheetDateLabel_('2026-02-30'), '');
 });
