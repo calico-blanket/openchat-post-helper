@@ -628,7 +628,7 @@ test('analyze: X の URL は oEmbed で本文と投稿者名を取り、末尾�
     fetch: (url) => (url.startsWith('https://publish.twitter.com/') ? oembed('長い投稿の途中まで…') : (url.startsWith('https://x.com/') ? res(200, '') : geminiRes(geminiAnalyze())))
   });
   const r2 = post(cut, { action: 'analyze', url: 'https://x.com/a/status/2' });
-  assert.ok(r2.warnings.some((w) => /途中で切れて/.test(w)));
+  assert.ok(r2.warnings.some((w) => /途中までしか取得できません/.test(w)));
 });
 
 test('analyze: 共有された本文のほうが長ければ、取得した本文より優先する（X の全文貼り付け）', () => {
@@ -1133,4 +1133,31 @@ test('doGet: archive 以外の GET は何も返さない／bootstrap は公開�
   assert.strictEqual(r.items, undefined);
   assert.strictEqual(post(env, { action: 'bootstrap' }).archivePublic, true);
   assert.strictEqual(post(load(), { action: 'bootstrap' }).archivePublic, false);
+});
+
+// ---- X の途中切れの判定 ----------------------------------------------
+
+test('isTruncatedXText_: 「…」で終わる・「…」のあとにリンクだけが続く本文を途中切れとみなす', () => {
+  const { context } = load();
+  const t = context.isTruncatedXText_;
+  assert.strictEqual(t('勉強会を開催しました。…'), true);
+  assert.strictEqual(t('（AIは民主主義をどう変えるか 一社会の備えと、日本の好機）を開催しました。…\npic.twitter.com/gN7MjgrOs8'), true);
+  assert.strictEqual(t('開催しました。… https://t.co/abc https://t.co/def'), true);
+  assert.strictEqual(t('短い投稿です。 pic.twitter.com/abc'), false);
+  assert.strictEqual(t('途中に…がある投稿です。'), false);
+  assert.strictEqual(t(''), false);
+});
+
+test('analyze: X の長文（「…」＋画像リンクで終わる）では、全文の貼り付けを促す警告を出す', () => {
+  const env = load({
+    fetch: (url) => {
+      if (url.startsWith('https://publish.twitter.com/')) {
+        return res(200, { author_name: '安野貴博', html: '<blockquote><p lang="ja">国会議員向け勉強会を開催しました。… <a href="https://t.co/x">pic.twitter.com/gN7MjgrOs8</a></p></blockquote>' });
+      }
+      if (url.startsWith('https://x.com/')) { return res(200, ''); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  const r = post(env, { action: 'analyze', url: 'https://x.com/takahiroanno/status/2105989521020166328' });
+  assert.ok(r.warnings.some((w) => /長い投稿は途中までしか取得できません/.test(w) && /さらに表示/.test(w)), JSON.stringify(r.warnings));
 });

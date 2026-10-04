@@ -442,7 +442,7 @@ function fetchSourceContent_(url) {
 
 /**
  * X の投稿本文を oEmbed で取得する。
- * 長い投稿は途中で切れて返る可能性がある（末尾が「…」なら警告する）。
+ * 長い投稿は約250字で切れて返る（無料で全文を取れる経路は無い）。途中切れなら全文の貼り付けを促す。
  */
 function fetchXPost_(url) {
   var endpoint = 'https://publish.twitter.com/oembed?omit_script=true&lang=ja&url=' + encodeURIComponent(url);
@@ -455,7 +455,9 @@ function fetchXPost_(url) {
   if (!parsed) {
     throw new Error('X の投稿本文が見つかりませんでした');
   }
-  var note = /…$/.test(parsed) ? 'X の投稿が途中で切れている可能性があります。全文を貼り付けてください' : '';
+  var note = isTruncatedXText_(parsed)
+    ? 'X の長い投稿は途中までしか取得できません。X で「さらに表示」を開いて本文をすべてコピーし、本文欄に貼って、もう一度「文章を整える」を押してください'
+    : '';
   return {
     status: 'ok',
     resolvedUrl: url,
@@ -464,6 +466,15 @@ function fetchXPost_(url) {
     pageTitle: '',
     note: note
   };
+}
+
+/**
+ * oEmbed の本文が途中で切れているかを判定する純粋関数。
+ * 切れた本文は「…」で終わるか、「…」のあとに画像や URL のリンク（pic.twitter.com/… や https://t.co/…）だけが続く。
+ */
+function isTruncatedXText_(text) {
+  var tail = String(text || '').replace(/(?:\s*(?:https?:\/\/\S+|pic\.twitter\.com\/\S+))+\s*$/, '');
+  return /…\s*$/.test(tail);
 }
 
 /** oEmbed の HTML（<blockquote><p>本文</p>— 名前 ...</blockquote>）から本文だけを取り出す純粋関数 */
