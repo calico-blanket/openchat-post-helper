@@ -22,6 +22,7 @@
     analysis: null,       // analyze の結果（警告・チラシの曜日など）
     summaryMode: false,   // スレッドに要約を使うか
     prefixEdited: false,  // 前置きを手で書き換えたか
+    useThreadEdited: false, // 「スレッドにも投稿する」を手で切り替えたか
     image: null,          // { mimeType, data, previewUrl }
     sharedStartedAt: null,
     list: { items: [], offset: 0, hasMore: false, query: null, loaded: false }
@@ -384,6 +385,8 @@
     $('summaryDraftArea').hidden = true;
     $('revertSummaryButton').hidden = true;
     $('fPrefix').value = autoPrefix();
+    state.useThreadEdited = false;
+    $('fUseThread').checked = L.defaultUseThread(config(), post.source, post.url);
     clearFieldErrors();
 
     $('saveButton').textContent = post.id ? '更新する' : '保存する';
@@ -460,7 +463,7 @@
   }
 
   /** 入力元によっては使わない欄（投稿者名・日時）を隠す */
-  var AUTHOR_SOURCES = ['slack', 'x', 'note', 'legislator'];
+  var AUTHOR_SOURCES = ['slack', 'x', 'instagram', 'threads', 'note', 'legislator'];
   function updateFieldVisibility(post) {
     $('fAuthorField').hidden = AUTHOR_SOURCES.indexOf(post.source) === -1;
     $('eventFields').hidden = post.kind !== 'schedule';
@@ -518,6 +521,7 @@
       summary: $('fSummary').value.trim(),
       url: $('fUrl').value.trim(),
       original: $('fOriginal').value,
+      useThread: $('fUseThread').checked,
       tags: tags,
       memo: $('fMemo').value,
       event: {
@@ -546,6 +550,7 @@
 
     updateFieldVisibility(post);
     updateAuthorPicks();
+    $('threadContent').hidden = !post.useThread;
 
     var flyerWeekday = state.analysis ? state.analysis.flyerWeekday : '';
     var mismatch = L.weekdayMismatchWarning(post.event.date, flyerWeekday);
@@ -593,6 +598,7 @@
     var body = state.summaryMode ? $('fSummaryDraft').value : post.original;
     var messages = L.buildThreadMessages({
       source: post.source,
+      urlFirstSources: config().urlFirstSources,
       url: post.url,
       prefix: $('fPrefix').value,
       body: body,
@@ -747,7 +753,8 @@
       title: post.title,
       summary: post.summary,
       url: post.url,
-      original: post.original,
+      // スレッドを使わず URL で誘導する投稿は、全文が URL 先にあるので原文を保存しない（note の長文など）
+      original: (post.useThread || !String(post.url || '').trim()) ? post.original : '',
       tags: post.tags,
       eventIso: L.buildEventIso(post.event.date, post.event.startTime, post.event.endTime),
       place: post.event.place,
@@ -1052,6 +1059,10 @@
 
     // 結果画面: 入力が変わるたびにプレビューを作り直す
     $('postForm').addEventListener('input', function (event) {
+      if (event.target.id === 'fUseThread') { state.useThreadEdited = true; }
+      if ((event.target.id === 'fSource' || event.target.id === 'fUrl') && !state.useThreadEdited) {
+        $('fUseThread').checked = L.defaultUseThread(config(), $('fSource').value, $('fUrl').value);
+      }
       if (event.target.id === 'fSource' || event.target.id === 'fAuthor') {
         if (!state.prefixEdited) { $('fPrefix').value = autoPrefix(); }
       }

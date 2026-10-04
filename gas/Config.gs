@@ -28,6 +28,8 @@ var APP_CONFIG = {
   sources: [
     { key: 'slack', label: 'Slack' },
     { key: 'x', label: 'X' },
+    { key: 'instagram', label: 'Instagram' },
+    { key: 'threads', label: 'Threads' },
     { key: 'line', label: 'LINE公式' },
     { key: 'note', label: 'note' },
     { key: 'legislator', label: '議員の活動告知' },
@@ -47,6 +49,10 @@ var APP_CONFIG = {
     slack: 'Slackからの転載です。',
     x: 'Xから、{author}さんの投稿です。',
     x_noAuthor: 'Xの投稿からの転載です。',
+    instagram: 'Instagramから、{author}さんの投稿です。',
+    instagram_noAuthor: 'Instagramの投稿からの転載です。',
+    threads: 'Threadsから、{author}さんの投稿です。',
+    threads_noAuthor: 'Threadsの投稿からの転載です。',
     line: 'LINE公式からの転載です。',
     note: 'noteから、{author}さんの記事です。',
     note_noAuthor: 'noteの記事からの転載です。',
@@ -59,12 +65,25 @@ var APP_CONFIG = {
   // トーク本体の定型句
   talk: {
     detailsLine: '詳細はスレッドにて ➡️',
+    // スレッドを使わないとき（トーク本体だけで完結させるとき）の結び。{url} は整えた URL。URL が無ければ出さない
+    linkLine: '全文はこちら ➡️\n{url}',
     // 日時行。{relative} は「本日」「明日」（コピーする時点で計算。どちらでもなければ空）
     dateLine: '📅 {relative}{date}{time}',
     placeLine: '📍 {place}',
     performersLine: '🎤 出演: {performers}',
     deadlineLine: '⏰ 申込締切: {deadline}'
   },
+
+  // 「スレッドにも投稿する」の初期値（入力元ごと。画面でその都度切り替えられる。URL が無いときは常に「する」）
+  //   ログインなしで読める媒体（note・一般の Web 記事）は、トーク本体＋リンクで完結させる
+  //   ログインが必要な媒体（X・Instagram・Threads・Slack・LINE）は、スレッドに全文を載せる
+  threadDefaults: {
+    slack: true, x: true, instagram: true, threads: true, line: true,
+    note: false, legislator: true, flyer: true, other: false
+  },
+
+  // スレッドの1通目を「URL だけ」にする入力元（↑で始まる前置きと組み合わせる）
+  urlFirstSources: ['x', 'instagram', 'threads'],
 
   // 開催場所の表記（AI が返す「開催形式」と「地名」から組み立てる。{area} は地名）
   placeLabels: {
@@ -81,6 +100,10 @@ var APP_CONFIG = {
     slack_noAuthor: '以下はSlackからの抜粋転載です。',
     x: '↑{author}さんの投稿です。',
     x_noAuthor: '↑Xの投稿です。',
+    instagram: '↑{author}さんのInstagramの投稿です。',
+    instagram_noAuthor: '↑Instagramの投稿です。',
+    threads: '↑{author}さんのThreadsの投稿です。',
+    threads_noAuthor: '↑Threadsの投稿です。',
     line: '以下はLINE公式からの転載です。',
     note: '以下は{author}さんのnote記事からの抜粋です。',
     note_noAuthor: '以下はnote記事からの抜粋です。',
@@ -99,6 +122,8 @@ var APP_CONFIG = {
   limits: {
     // Gemini に渡す本文の最大文字数（先頭から切る）
     llmInputMaxChars: 6000,
+    // 入力元ごとの上書き（note は長文が多いので、記事の後半まで踏まえて要約させる）
+    llmInputMaxCharsBySource: { note: 20000 },
     // Jev に渡す本文の最大文字数（Jev は state＋最長の質問で 32k トークンまで）
     jevInputMaxChars: 8000,
     // 要約ボタンで Gemini に渡す最大文字数

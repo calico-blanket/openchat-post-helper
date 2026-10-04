@@ -781,3 +781,89 @@ test('投稿者の候補の操作も合言葉が必要', () => {
   const env = load();
   assert.match(post(env, { action: 'addAuthor', name: 'x' }, 'wrong').error, /合言葉が一致しません/);
 });
+
+// ---- URL を整える・Instagram/Threads・note の文字数上限 -------------------
+
+test('cleanUrl_: 追跡用パラメーターを取り除き、Amazon は /dp/ASIN にし、必要なパラメーターと # は残す', () => {
+  const { context } = load();
+  const c = context.cleanUrl_;
+  assert.strictEqual(c('https://note.com/btaros/n/n4afd1c591625?sub_rt=share_pw'), 'https://note.com/btaros/n/n4afd1c591625');
+  assert.strictEqual(
+    c('https://www.amazon.co.jp/%E5%95%86%E5%93%81%E5%90%8D/dp/B0ABCDEFGH/ref=sr_1_1?crid=XYZ&keywords=abc&qid=1'),
+    'https://www.amazon.co.jp/dp/B0ABCDEFGH');
+  assert.strictEqual(c('https://amazon.co.jp/gp/product/b0abcdefgh?psc=1'), 'https://www.amazon.co.jp/dp/B0ABCDEFGH');
+  // ASIN が取れない Amazon のページ（検索結果など）は、追跡用だけ取り除いてそのまま
+  assert.strictEqual(c('https://www.amazon.co.jp/s?k=本&utm_source=x'), 'https://www.amazon.co.jp/s?k=本');
+  assert.strictEqual(c('https://x.com/user/status/123?s=20&t=abc'), 'https://x.com/user/status/123');
+  assert.strictEqual(c('https://www.instagram.com/p/ABC/?igsh=xyz&img_index=2'), 'https://www.instagram.com/p/ABC/?img_index=2');
+  assert.strictEqual(c('https://www.threads.net/@u/post/ABC?xmt=1&slof=1'), 'https://www.threads.net/@u/post/ABC');
+  assert.strictEqual(c('https://www.youtube.com/watch?v=abc123&si=track&t=30'), 'https://www.youtube.com/watch?v=abc123&t=30');
+  assert.strictEqual(c('https://example.com/a?id=5&utm_source=line&fbclid=1#section'), 'https://example.com/a?id=5#section');
+  assert.strictEqual(c('https://example.com/a?utm_medium=x'), 'https://example.com/a');
+  assert.strictEqual(c('  https://example.com/  '), 'https://example.com/');
+  assert.strictEqual(c('URL ではない文字'), 'URL ではない文字');
+  assert.strictEqual(c(''), '');
+});
+
+test('重複チェック: 整える前後・threads.net と threads.com を同じ URL とみなす', () => {
+  const { context } = load();
+  const n = context.normalizeUrlForCompare_;
+  assert.strictEqual(n('https://note.com/btaros/n/n4afd1c591625?sub_rt=share_pw'), n('https://note.com/btaros/n/n4afd1c591625'));
+  assert.strictEqual(n('https://www.threads.com/@u/post/A'), n('https://threads.net/@u/post/A'));
+  assert.strictEqual(n('https://www.amazon.co.jp/x/dp/B0ABCDEFGH/ref=1'), n('https://www.amazon.co.jp/dp/B0ABCDEFGH'));
+});
+
+test('analyze: 返す URL は整えた形で、重複チェックも整えた URL で行う', () => {
+  const env = load({
+    fetch: (url) => {
+      if (url === 'https://note.com/api/v3/notes/nabc123') {
+        return res(200, { data: { name: '記事', body: '<p>' + '本文です。'.repeat(20) + '</p>', user: { nickname: '佐藤' } } });
+      }
+      if (url.startsWith('https://note.com/')) { return res(200, ''); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  post(env, validPost({ url: 'https://note.com/sato/n/nabc123' }));
+  const r = post(env, { action: 'analyze', url: 'https://note.com/sato/n/nabc123?sub_rt=share_pw' });
+  assert.strictEqual(r.resolvedUrl, 'https://note.com/sato/n/nabc123');
+  assert.ok(r.duplicate, '整えた URL で重複を見つける');
+});
+
+test('analyze: Instagram・Threads の URL は通信せず貼り付けを促し、入力元を判定する', () => {
+  for (const [url, source, label] of [
+    ['https://www.instagram.com/p/ABC/?igsh=1', 'instagram', 'Instagram'],
+    ['https://www.threads.net/@u/post/ABC', 'threads', 'Threads']
+  ]) {
+    const env = load();
+    const r = post(env, { action: 'analyze', url });
+    assert.strictEqual(r.source, source);
+    assert.strictEqual(r.fetchStatus, 'needs_paste');
+    assert.match(r.warnings[0], new RegExp(label + ' の URL からは本文を取得できません'));
+    assert.strictEqual(env.calls.length, 0, '通信しない');
+  }
+  // 本文を貼れば Gemini で整形する（URL は整えた形）
+  const env = load({ fetch: () => geminiRes(geminiAnalyze()) });
+  const r = post(env, { action: 'analyze', url: 'https://www.instagram.com/p/ABC/?igsh=1', text: '投稿の本文' });
+  assert.strictEqual(r.analyzed, true);
+  assert.strictEqual(r.resolvedUrl, 'https://www.instagram.com/p/ABC/');
+});
+
+test('analyze: note は AI に渡す文字数の上限を 20,000 文字にする（ほかは 6,000 文字のまま）', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze()) });
+  post(env, { action: 'analyze', source: 'note', text: 'あ'.repeat(25000) });
+  const sent = JSON.parse(env.calls[0].payload).contents[0].parts[0].text;
+  assert.ok(sent.includes('あ'.repeat(20000)) && !sent.includes('あ'.repeat(20001)));
+  const env2 = load({ fetch: () => geminiRes(geminiAnalyze()) });
+  post(env2, { action: 'analyze', source: 'slack', text: 'あ'.repeat(25000) });
+  const sent2 = JSON.parse(env2.calls[0].payload).contents[0].parts[0].text;
+  assert.ok(sent2.includes('あ'.repeat(6000)) && !sent2.includes('あ'.repeat(6001)));
+});
+
+test('保存: Instagram・Threads も入力元として保存でき、表示名で書き込む', () => {
+  const env = load();
+  assert.strictEqual(post(env, validPost({ source: 'instagram', url: 'https://www.instagram.com/p/A/' })).ok, true);
+  assert.strictEqual(post(env, validPost({ source: 'threads', url: 'https://www.threads.net/@u/post/B' })).ok, true);
+  const items = post(env, { action: 'search' }).items;
+  assert.deepStrictEqual(items.map((i) => i.source), ['threads', 'instagram']);
+  assert.deepStrictEqual(env.sheet().values.slice(1).map((r) => r[2]), ['Instagram', 'Threads']);
+});

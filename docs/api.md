@@ -32,7 +32,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | 項目 | 内容 |
 |---|---|
 | `source` | 入力元（指定がなければ URL から推定。画像だけなら `flyer`） |
-| `resolvedUrl` | 短縮 URL などを解決した URL |
+| `resolvedUrl` | 短縮 URL などを解決し、追跡用パラメーターを取り除いた URL（Amazon は `/dp/商品番号` の形） |
 | `fetchStatus` | `ok`（取得できた）／`needs_paste`（本文の貼り付けが必要）／`none`（URL なし） |
 | `author` | X・note の投稿者名 |
 | `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章 |
@@ -53,6 +53,9 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 
 - `eventIso`: `2026-10-03`、`2026-10-03T19:00+09:00`、`2026-10-03T19:00+09:00/2026-10-03T21:00+09:00` のいずれか（空も可）
 - `deadline`: `YYYY-MM-DD`（空も可）
+- `source`: `slack` `x` `instagram` `threads` `line` `note` `legislator` `flyer` `other`（`Config.gs` の `sources`）
+- `original`: 画面で「スレッドにも投稿する」を外し、URL がある投稿は空で送る（全文は URL 先にあるため保存しない）
+- 重複チェックは、追跡用パラメーターを取り除いた URL どうしで比べる（twitter.com と x.com、threads.net と threads.com も同じとみなす）
 - `tags`: 登録済みタグか、議員名一覧の名前だけ
 - 各値はスプレッドシートの 1 セルの上限（50,000 文字）まで
 

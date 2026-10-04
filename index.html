@@ -123,6 +123,12 @@
               </div>
             </div>
 
+            <div class="field">
+              <label for="fUrl">URL</label>
+              <input type="url" id="fUrl" inputmode="url" autocomplete="off" aria-describedby="fUrlHelp">
+              <p id="fUrlHelp" class="help">追跡用の部分を取り除いた形に整えてあります。スレッドを使わないときはトークの最後に、X・Instagram・Threads ではスレッドの1通目に入ります。</p>
+            </div>
+
             <fieldset class="field event-box" id="eventFields">
               <legend>開催日時など（必ず原文と見比べてください）</legend>
               <div class="field-row">
@@ -161,6 +167,12 @@
         <!-- ② スレッドに貼る -->
         <section class="step-box" aria-labelledby="step2Heading">
           <h2 id="step2Heading">② スレッドに貼る</h2>
+          <div class="field">
+            <label class="choice"><input type="checkbox" id="fUseThread" aria-describedby="fUseThreadHelp"> スレッドにも投稿する</label>
+            <p class="help" id="fUseThreadHelp">オフにすると、トーク本体だけで完結する形（最後に「全文はこちら ➡️」と URL）になります。</p>
+          </div>
+
+          <div id="threadContent">
           <p class="help">①で貼った投稿のスレッドに、上から順に1通ずつコピーして貼ります。原文は AI を通さず、そのまま使います。</p>
           <ol id="threadMessages" class="message-list"></ol>
 
@@ -198,12 +210,8 @@
               <label for="fMemo">コメント（スレッドの最後に添えます）</label>
               <textarea id="fMemo" rows="2"></textarea>
             </div>
-
-            <div class="field">
-              <label for="fUrl">URL（X の場合は URL だけの1通になります）</label>
-              <input type="url" id="fUrl" inputmode="url" autocomplete="off">
-            </div>
           </details>
+          </div>
         </section>
 
         <!-- ③ 保存する -->
