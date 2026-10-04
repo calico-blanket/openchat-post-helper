@@ -69,7 +69,20 @@
     if (host === 'note.com' || /\.note\.jp$/.test(host)) { return 'note'; }
     if (host === 'slack.com' || /\.slack\.com$/.test(host)) { return 'slack'; }
     if (host === 'line.me' || /\.line\.me$/.test(host) || host === 'lin.ee') { return 'line'; }
+    if (host === 'instagram.com' || host === 'instagr.am') { return 'instagram'; }
+    if (host === 'threads.net' || host === 'threads.com') { return 'threads'; }
     return '';
+  }
+
+  /**
+   * 「スレッドにも投稿する」の初期値を決める。
+   * URL が無ければ常に true（トーク本体からリンクで誘導できないため）。
+   * それ以外は設定（threadDefaults）の入力元ごとの値。未設定の入力元は true。
+   */
+  function defaultUseThread(config, source, url) {
+    if (!String(url || '').trim()) { return true; }
+    var defaults = (config && config.threadDefaults) || {};
+    return defaults[source] === undefined ? true : !!defaults[source];
   }
 
   // ---- 日付・曜日・相対表現 -----------------------------------
@@ -245,7 +258,8 @@
    *   概略（スケジュール型では載せない）
    *   （スケジュール型のみ）日時・場所・出演者・申込締切の行
    *   出典行
-   *   詳細はスレッドで ➡️
+   *   結び: スレッドを使うなら「詳細はスレッドにて ➡️」、使わないなら「全文はこちら ➡️」＋ URL
+   *         （post.useThread が false のとき。URL が無ければ結びの行は出さない）
    * 出典行と定型句は設定から自動で付ける（LLM には書かせない）。
    * 「本日」「明日」は todayIso（コピーする時点の今日）を基準に計算する。
    */
@@ -273,7 +287,12 @@
       { author: String(post.author || '').trim() }
     );
     if (sourceLine) { tail.push(sourceLine); }
-    if (talk.detailsLine) { tail.push(talk.detailsLine); }
+    if (post.useThread === false) {
+      var url = String(post.url || '').trim();
+      if (url) { tail.push(fillTemplate(talk.linkLine || '全文はこちら ➡️\n{url}', { url: url })); }
+    } else if (talk.detailsLine) {
+      tail.push(talk.detailsLine);
+    }
     if (tail.length) { blocks.push(tail.join('\n')); }
 
     return blocks.join('\n\n');
@@ -393,7 +412,7 @@
 
   /**
    * スレッドに貼るメッセージを、1通ずつコピーできる配列にして返す。
-   *   - X の場合: 1通目は URL だけ。2通目から「前置き＋本文」
+   *   - X・Instagram・Threads（options.urlFirstSources）の場合: 1通目は URL だけ。2通目から「前置き＋本文」
    *   - それ以外: 1通目の先頭に前置き。本文は段落の切れ目で分割
    *   - メモ（コメント）は最後の1通の末尾に添える。入らなければ別の1通にする
    * 本文（原文・要約）はここで一切書き換えない。
@@ -406,7 +425,8 @@
     var body = String(options.body || '');
     var messages = [];
 
-    if (options.source === 'x' && options.url) {
+    var urlFirstSources = options.urlFirstSources || ['x'];
+    if (urlFirstSources.indexOf(options.source) !== -1 && options.url) {
       messages.push({ kind: 'url', text: String(options.url) });
     }
 
@@ -582,6 +602,7 @@
   return {
     parseSharedParams: parseSharedParams,
     detectSource: detectSource,
+    defaultUseThread: defaultUseThread,
     parseIsoDate: parseIsoDate,
     weekdayOf: weekdayOf,
     formatDateJa: formatDateJa,

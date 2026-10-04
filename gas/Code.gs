@@ -178,15 +178,17 @@ function handleAnalyze_(body) {
     : { status: 'none', resolvedUrl: '', text: '', author: '', pageTitle: '', note: '' };
   if (fetched.note) { warnings.push(fetched.note); }
 
+  // 追跡用のパラメーターなどを取り除いた URL を、表示・保存・重複チェックに使う
+  var cleanedUrl = cleanUrl_(fetched.resolvedUrl || input.url);
   var source = input.source ||
-    detectSourceFromUrl_(fetched.resolvedUrl || input.url) ||
+    detectSourceFromUrl_(cleanedUrl) ||
     (input.image ? 'flyer' : 'other');
   var original = chooseOriginal_(input.text, fetched.text);
 
   var result = {
     ok: true,
     source: source,
-    resolvedUrl: fetched.resolvedUrl || input.url,
+    resolvedUrl: cleanedUrl,
     fetchStatus: fetched.status,
     author: fetched.author || '',
     originalText: original,
@@ -202,7 +204,7 @@ function handleAnalyze_(body) {
     category: '',
     tags: [],
     legislatorTags: [],
-    duplicate: findDuplicateByUrl_(fetched.resolvedUrl || input.url, ''),
+    duplicate: findDuplicateByUrl_(cleanedUrl, ''),
     warnings: warnings,
     analyzed: false
   };
@@ -229,7 +231,7 @@ function handleAnalyze_(body) {
   var requests = [buildGeminiAnalyzeRequest_({
     apiKey: apiKey,
     model: model,
-    text: truncateText_(original, limits.llmInputMaxChars),
+    text: truncateText_(original, (limits.llmInputMaxCharsBySource || {})[source] || limits.llmInputMaxChars),
     image: input.image,
     url: result.resolvedUrl,
     source: source,
@@ -372,6 +374,8 @@ function detectSourceFromUrl_(url) {
   if (host === 'note.com' || /\.note\.jp$/.test(host)) { return 'note'; }
   if (host === 'slack.com' || /\.slack\.com$/.test(host)) { return 'slack'; }
   if (host === 'line.me' || /\.line\.me$/.test(host) || host === 'lin.ee') { return 'line'; }
+  if (host === 'instagram.com' || host === 'instagr.am') { return 'instagram'; }
+  if (host === 'threads.net' || host === 'threads.com') { return 'threads'; }
   return '';
 }
 
@@ -384,9 +388,11 @@ function fetchSourceContent_(url) {
     return { status: 'needs_paste', resolvedUrl: resolvedUrl, text: '', author: '', pageTitle: '', note: note || '' };
   };
 
-  // Slack はログインが必要で取得できないため、通信せずに貼り付けを促す
-  if (detectSourceFromUrl_(url) === 'slack') {
-    return empty(url, 'Slack の URL からは本文を取得できません。本文を貼り付けてください');
+  // ログインが必要で本文を取得できない媒体は、通信せずに貼り付けを促す
+  var loginRequired = { slack: 'Slack', instagram: 'Instagram', threads: 'Threads' };
+  var loginSource = detectSourceFromUrl_(url);
+  if (loginRequired[loginSource]) {
+    return empty(url, loginRequired[loginSource] + ' の URL からは本文を取得できません。本文を貼り付けてください');
   }
 
   var resolvedUrl = resolveFinalUrl_(url);
@@ -1093,25 +1099,60 @@ function rowToItem_(row) {
   };
 }
 
+// 取り除く追跡用パラメーター（どのサイトでも記事の特定に関係しないもの）
+var TRACKING_PARAMS = [
+  'fbclid', 'gclid', 'yclid', 'dclid', 'msclkid', 'mc_cid', 'mc_eid',
+  'ref_src', 'ref_url', 'sub_rt', 'igsh', 'igshid', 'si', '_hsenc', '_hsmi'
+];
+// サイトごとに取り除くパラメーター（共有ボタンが付けるもの）
+var HOST_TRACKING_PARAMS = {
+  'x.com': ['s', 't'],
+  'twitter.com': ['s', 't'],
+  'threads.net': ['xmt', 'slof'],
+  'threads.com': ['xmt', 'slof']
+};
+
+/**
+ * URL を「整える」純粋関数（外部の短縮サービスは使わず、行き先を変えずに短くする）。
+ *   - utm_… や fbclid などの追跡用パラメーターと、共有ボタンが付けるパラメーターを取り除く
+ *   - Amazon の商品ページは、商品番号（ASIN）だけの公式の短い形（/dp/ASIN）にする
+ *   - 記事の特定に必要なパラメーター（YouTube の v= など）と、# 以降は残す
+ * URL として読めなければ、前後の空白を除いてそのまま返す。
+ */
+function cleanUrl_(url) {
+  var text = String(url || '').trim();
+  var m = text.match(/^(https?:\/\/)([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i);
+  if (!m) { return text; }
+  var bareHost = m[2].toLowerCase().replace(/^(www|mobile|m)\./, '');
+
+  if (/^amazon\.(co\.jp|com|co\.uk|de|fr|it|es|ca|com\.au|in)$/.test(bareHost)) {
+    var asin = m[3].match(/\/(?:dp|gp\/product|gp\/aw\/d|exec\/obidos\/ASIN)\/([A-Z0-9]{10})(?:\/|$)/i);
+    if (asin) { return 'https://www.' + bareHost + '/dp/' + asin[1].toUpperCase(); }
+  }
+
+  var hostParams = HOST_TRACKING_PARAMS[bareHost] || [];
+  var query = (m[4] || '').replace(/^\?/, '').split('&').filter(function (pair) {
+    if (!pair) { return false; }
+    var key = pair.split('=')[0].toLowerCase();
+    if (/^utm_/.test(key)) { return false; }
+    return TRACKING_PARAMS.indexOf(key) === -1 && hostParams.indexOf(key) === -1;
+  }).join('&');
+  return m[1] + m[2] + m[3] + (query ? '?' + query : '') + (m[5] || '');
+}
+
 /**
  * 重複チェック用に URL を正規化する純粋関数。
- * ホストの大文字小文字・www.・twitter.com/x.com の違い、末尾のスラッシュ、
- * 追跡用パラメーター（utm_* など）、# 以降を無視する。
+ * cleanUrl_ で整えたうえで、ホストの大文字小文字・www.・twitter.com/x.com の違い、
+ * http/https の違い、末尾のスラッシュ、パラメーターの順序、# 以降を無視する。
  */
 function normalizeUrlForCompare_(url) {
-  var m = String(url || '').trim().match(/^https?:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?/i);
+  var m = cleanUrl_(url).match(/^https?:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?/i);
   if (!m) { return ''; }
-  var host = m[1].toLowerCase().replace(/^(www|mobile)\./, '');
+  var host = m[1].toLowerCase().replace(/^(www|mobile|m)\./, '');
   if (host === 'twitter.com') { host = 'x.com'; }
+  if (host === 'threads.com') { host = 'threads.net'; }
   var pathPart = m[2].replace(/\/+$/, '');
-  var query = (m[3] || '').replace(/^\?/, '').split('&').filter(function (pair) {
-    var key = pair.split('=')[0].toLowerCase();
-    if (!pair) { return false; }
-    if (/^utm_/.test(key) || key === 'fbclid' || key === 'gclid' || key === 'ref_src') { return false; }
-    // X の共有リンクに付く s / t は投稿の特定に関係ない
-    if (host === 'x.com' && (key === 's' || key === 't')) { return false; }
-    return true;
-  }).sort().join('&');
+  var query = (m[3] || '').replace(/^\?/, '').split('&').filter(function (pair) { return pair; }).sort().join('&');
   return host + pathPart + (query ? '?' + query : '');
 }
 

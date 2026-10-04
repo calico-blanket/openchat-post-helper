@@ -362,3 +362,63 @@ test('Slack のトーク本体の出典行は、名前があっても変えな�
   assert.ok(body.includes('Slackからの転載です。\n詳細はスレッドにて'));
   assert.ok(!body.includes('運営アカウント'));
 });
+
+// ---- スレッドの切り替え・Instagram/Threads ------------------------------
+
+test('detectSource: Instagram・Threads を判定する', () => {
+  assert.strictEqual(L.detectSource('https://www.instagram.com/p/ABC/'), 'instagram');
+  assert.strictEqual(L.detectSource('https://www.threads.net/@user/post/ABC'), 'threads');
+  assert.strictEqual(L.detectSource('https://www.threads.com/@user/post/ABC'), 'threads');
+});
+
+test('defaultUseThread: note・一般の Web 記事はスレッドなし、ログインが必要な媒体はあり、URL が無ければ常にあり', () => {
+  assert.strictEqual(L.defaultUseThread(CONFIG, 'note', 'https://note.com/a/n/n1'), false);
+  assert.strictEqual(L.defaultUseThread(CONFIG, 'other', 'https://example.com/a'), false);
+  for (const source of ['slack', 'x', 'instagram', 'threads', 'line', 'legislator', 'flyer']) {
+    assert.strictEqual(L.defaultUseThread(CONFIG, source, 'https://example.com/a'), true, source);
+  }
+  assert.strictEqual(L.defaultUseThread(CONFIG, 'note', ''), true, 'URL が無ければスレッドあり');
+  assert.strictEqual(L.defaultUseThread(CONFIG, 'other', '  '), true);
+  assert.strictEqual(L.defaultUseThread(CONFIG, '未知の入力元', 'https://example.com/'), true);
+});
+
+test('buildTalkBody: スレッドなしなら結びを「全文はこちら ➡️」＋ URL にし、URL が無ければ結びを出さない', () => {
+  const post = {
+    title: '国会対策一年史', summary: '・要点1\n・要点2', kind: 'article', source: 'note', author: '須田',
+    url: 'https://note.com/btaros/n/n4afd1c591625', useThread: false
+  };
+  assert.strictEqual(L.buildTalkBody(post, CONFIG, '2026-10-04'), [
+    '【国会対策一年史】',
+    '・要点1',
+    '・要点2',
+    '',
+    'noteから、須田さんの記事です。',
+    '全文はこちら ➡️',
+    'https://note.com/btaros/n/n4afd1c591625'
+  ].join('\n'));
+  const noUrl = L.buildTalkBody(Object.assign({}, post, { url: '' }), CONFIG, '2026-10-04');
+  assert.ok(noUrl.endsWith('noteから、須田さんの記事です。'));
+  assert.ok(!noUrl.includes('➡️'));
+  // useThread を指定しない（従来の呼び出し）ときはスレッドありとして扱う
+  const legacy = L.buildTalkBody(Object.assign({}, post, { useThread: undefined }), CONFIG, '2026-10-04');
+  assert.ok(legacy.endsWith('詳細はスレッドにて ➡️'));
+});
+
+test('buildThreadMessages: Instagram・Threads も1通目は URL だけ（設定の urlFirstSources に従う）', () => {
+  for (const source of ['x', 'instagram', 'threads']) {
+    const msgs = L.buildThreadMessages({
+      source, url: 'https://example.com/p/1', prefix: '↑投稿です。', body: '本文',
+      maxChars: 1000, urlFirstSources: CONFIG.urlFirstSources
+    });
+    assert.deepStrictEqual(msgs.map((m) => m.kind), ['url', 'text'], source);
+  }
+  const slack = L.buildThreadMessages({ source: 'slack', url: 'https://example.com/', prefix: 'P', body: '本文', maxChars: 1000, urlFirstSources: CONFIG.urlFirstSources });
+  assert.deepStrictEqual(slack.map((m) => m.kind), ['text']);
+});
+
+test('ひな形: Instagram・Threads の出典行と前置き（名前あり・なし）', () => {
+  assert.strictEqual(L.fillTemplate(L.pickTemplate(CONFIG.sourceLines, 'instagram', '山田'), { author: '山田' }), 'Instagramから、山田さんの投稿です。');
+  assert.strictEqual(L.pickTemplate(CONFIG.sourceLines, 'threads', ''), 'Threadsの投稿からの転載です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'instagram', '山田', false), '↑山田さんのInstagramの投稿です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'threads', '', false), '↑Threadsの投稿です。');
+});
