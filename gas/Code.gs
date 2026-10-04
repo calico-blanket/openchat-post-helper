@@ -13,6 +13,7 @@
 //     GEMINI_API_KEY    Gemini の API キー（必須）
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
+//     ARCHIVE_PUBLIC    "true" にすると、公開の一覧（archive.html）用の読み取り専用の入口が動く（任意）
 // ============================================================
 
 // ---- 定数 --------------------------------------------------
@@ -62,9 +63,18 @@ var MIN_BODY_CHARS = 40;
 // ---- エントリポイント ------------------------------------------
 
 /**
- * GET では何も返さない（合言葉を URL に載せてログに残さないよう、API はすべて POST）。
+ * GET は「公開の一覧」（action=archive）だけを受け付ける。合言葉は不要で、読むだけ。
+ * それ以外の API は合言葉を URL に載せてログに残さないよう、すべて POST で受ける。
  */
-function doGet() {
+function doGet(e) {
+  var action = String((e && e.parameter && e.parameter.action) || '');
+  if (action === 'archive') {
+    try {
+      return jsonResponse_(handleArchive_());
+    } catch (err) {
+      return jsonResponse_({ ok: false, error: String((err && err.message) || err) });
+    }
+  }
   return jsonResponse_({ ok: false, error: 'この URL は PWA から POST で呼び出してください' });
 }
 
@@ -166,7 +176,8 @@ function handleBootstrap_() {
     jevConfigured: !!getProperty_('TYPESAFE_API_KEY'),
     model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL,
     // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
-    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl()
+    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+    archivePublic: getProperty_('ARCHIVE_PUBLIC').toLowerCase() === 'true'
   };
 }
 
@@ -1375,6 +1386,55 @@ function handleSearch_(body) {
     items.push(item);
   }
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
+}
+
+// ---- 公開の一覧（合言葉なしで読める、読み取り専用） --------------------------
+
+/**
+ * 公開の一覧（archive.html）に渡す記録を、新しい順に返す。
+ * スクリプトプロパティ ARCHIVE_PUBLIC が "true" のときだけ動く（初期状態は止めておく）。
+ * 返すのは公開してよい項目だけ（toPublicItem_ の一覧）。メモと ID は返さない。
+ */
+function handleArchive_() {
+  if (getProperty_('ARCHIVE_PUBLIC').toLowerCase() !== 'true') {
+    throw new Error('公開の一覧は、いまは公開されていません');
+  }
+  var entries = readEntries_(openSheet_());
+  var items = [];
+  for (var i = entries.length - 1; i >= 0; i--) {
+    items.push(toPublicItem_(entries[i].item));
+  }
+  return { ok: true, teamName: APP_CONFIG.teamName, items: items };
+}
+
+/**
+ * 記録の1件を、公開してよい項目だけのオブジェクトにする純粋関数。
+ * ここに無い項目（メモ・ID など）は、公開の一覧には出ない。URL は http(s) のものだけ残す。
+ */
+function toPublicItem_(item) {
+  var safeUrl = function (u) { return /^https?:\/\/\S+$/i.test(String(u || '')) ? String(u) : ''; };
+  var kind = findByKey_(APP_CONFIG.kinds, item.kind);
+  var source = findByKey_(APP_CONFIG.sources, item.source);
+  return {
+    savedAt: item.savedAt,
+    kind: item.kind,
+    kindLabel: kind ? kind.label : '',
+    sourceLabel: source ? source.label : '',
+    category: item.category,
+    title: item.title,
+    summary: item.summary,
+    tags: item.tags,
+    eventIso: item.eventIso,
+    place: item.place,
+    deadline: item.deadline,
+    performers: item.performers,
+    author: item.author,
+    talk: item.talk,
+    original: item.original,
+    url: safeUrl(item.url),
+    joinUrl: safeUrl(item.joinUrl),
+    applyUrl: safeUrl(item.applyUrl)
+  };
 }
 
 // ---- カテゴリ・タグ・発信者の候補の管理（スクリプトプロパティ） ----------------

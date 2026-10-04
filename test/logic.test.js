@@ -456,3 +456,53 @@ test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警
   assert.strictEqual(L.meetingUrlWarning(['https://example.com/zoom.us/']), '', 'パスに含まれるだけなら会議 URL ではない');
   assert.strictEqual(L.meetingUrlWarning([]), '');
 });
+
+// ---- 公開の一覧（buildArchiveView） -----------------------------------
+
+const ARCHIVE_ITEMS = [
+  { savedAt: '2026-10-04 13:00:00', kindLabel: '議員活動', title: '国会対策の1年', eventIso: '', place: '', author: '須田', talk: 'トーク', original: '長い原文', tags: ['国会'] },
+  { savedAt: '2026-10-03 02:00:00', kindLabel: 'スケジュール', title: '勉強会', eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', place: '対面（高崎）＆オンライン', author: '運営', talk: '', original: '', tags: [] },
+  { savedAt: '2026-09-28 10:00:00', kindLabel: 'スケジュール', title: 'ポスティング', eventIso: '2026-10-12T10:00+09:00', place: '対面', author: '運営', talk: '', original: '高崎駅前に集合', tags: ['ポスティング'] },
+  { savedAt: '2026-09-14 10:00:00', kindLabel: 'スケジュール', title: '説明会', eventIso: '2026-09-20', place: 'オンライン', author: '運営', talk: '', original: '', tags: [] }
+];
+const titles = (view) => view.rows.filter((r) => r.type === 'item').map((r) => r.item.title);
+
+test('buildArchiveView: 登録日の新しい順に並べ、月が変わるところに区切りを入れる', () => {
+  const v = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'saved', dir: 'desc', today: '2026-10-04' });
+  assert.deepStrictEqual(v.rows.map((r) => r.type === 'month' ? '#' + r.label : r.item.title),
+    ['#2026年10月', '国会対策の1年', '勉強会', '#2026年9月', 'ポスティング', '説明会']);
+  assert.strictEqual(v.rows[2].eventLabel, '10/24(土) 13:00〜17:00');
+  assert.strictEqual(v.rows[1].savedLabel, '10/4');
+  assert.strictEqual(v.total, 4);
+  assert.strictEqual(v.hasMore, false);
+});
+
+test('buildArchiveView: 検索は原文・タグ・場所も対象で、大文字小文字を区別しない', () => {
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '高崎' })), ['勉強会', 'ポスティング']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '国会' })), ['国会対策の1年']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '  ' })).length, 4);
+  assert.strictEqual(L.buildArchiveView(ARCHIVE_ITEMS, { q: '存在しない語' }).total, 0);
+});
+
+test('buildArchiveView: 「開催予定のみ」は開催日が今日以降のものだけ（今日を含む）', () => {
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { upcoming: true, today: '2026-10-04' })), ['勉強会', 'ポスティング']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { upcoming: true, today: '2026-10-12' })), ['勉強会', 'ポスティング']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { upcoming: true, today: '2026-10-13' })), ['勉強会']);
+});
+
+test('buildArchiveView: 開催日の近い順では開催日の無いものを最後にし、月の区切りは入れない', () => {
+  const v = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'event', dir: 'asc' });
+  assert.deepStrictEqual(titles(v), ['説明会', 'ポスティング', '勉強会', '国会対策の1年']);
+  assert.ok(v.rows.every((r) => r.type === 'item'));
+  const desc = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'event', dir: 'desc' });
+  assert.deepStrictEqual(titles(desc), ['勉強会', 'ポスティング', '説明会', '国会対策の1年'], '降順でも空は最後');
+});
+
+test('buildArchiveView: 表示件数の上限と「さらに表示」の判定', () => {
+  const v = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'saved', dir: 'desc', limit: 3 });
+  assert.strictEqual(v.shown, 3);
+  assert.strictEqual(v.total, 4);
+  assert.strictEqual(v.hasMore, true);
+  assert.deepStrictEqual(titles(v), ['国会対策の1年', '勉強会', 'ポスティング']);
+  assert.strictEqual(L.buildArchiveView([], {}).total, 0);
+});

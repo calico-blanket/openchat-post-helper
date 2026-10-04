@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>記録の一覧</title>
+  <meta name="description" content="オープンチャットで紹介した投稿と、記録だけに残した投稿の一覧です">
+  <link rel="icon" href="/icons/icon-192.png">
+  <meta name="theme-color" content="#0b5c42">
+  <link rel="stylesheet" href="/css/archive.css">
+</head>
+<body>
+  <a class="skip-link" href="#archiveList">一覧へ移動</a>
+
+  <div class="page">
+    <header class="page-header">
+      <h1 id="archiveTitle">記録の一覧</h1>
+      <p id="archiveDescription" class="lead"></p>
+    </header>
+
+    <div class="controls">
+      <div class="search-field">
+        <label for="archiveSearch">検索（タイトル・本文・原文・発信者・場所など）</label>
+        <input type="search" id="archiveSearch" autocomplete="off" placeholder="例: 高崎、配信、勉強会">
+      </div>
+      <label class="check">
+        <input type="checkbox" id="upcomingOnly"> 開催予定のみ
+      </label>
+      <div class="sort-field narrow-only">
+        <label for="sortSelect">並び順</label>
+        <select id="sortSelect">
+          <option value="saved:desc">登録日の新しい順</option>
+          <option value="event:asc">開催日の近い順</option>
+          <option value="title:asc">タイトル順</option>
+        </select>
+      </div>
+      <p id="archiveStatus" class="status" role="status" aria-live="polite">読み込んでいます…</p>
+    </div>
+
+    <div class="table-box">
+      <div class="list-head wide-only" id="listHead">
+        <!-- 列の見出し（並べ替えのボタン）は js/archive.js で描く -->
+      </div>
+      <ul id="archiveList" class="archive-list" tabindex="-1" aria-label="記録の一覧"></ul>
+      <p id="emptyMessage" class="empty" hidden>見つかりませんでした。別のことばで探してみてください。</p>
+    </div>
+    <div class="more-box">
+      <button type="button" id="moreButton" class="more-button" hidden>さらに表示</button>
+    </div>
+  </div>
+
+  <script src="/archive-config.js"></script>
+  <script src="/js/logic.js"></script>
+  <script src="/js/archive.js"></script>
+</body>
+</html>

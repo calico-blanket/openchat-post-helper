@@ -169,6 +169,9 @@
     var isSheetUrl = /^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl);
     $('sheetLink').href = isSheetUrl ? sheetUrl : '#';
     $('sheetLinkArea').hidden = !isSheetUrl;
+    $('archiveState').textContent = boot.archivePublic
+      ? '公開中です。合言葉なしで誰でも読める記録の一覧です（メモと ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
+      : 'いまは公開していません。公開するには、GAS のスクリプトプロパティ ARCHIVE_PUBLIC を true にし、archive-config.js に GAS の URL を入れます（README 参照）。';
   }
 
   /** キャッシュがあれば先に使い、裏で最新化する */
