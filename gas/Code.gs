@@ -27,15 +27,19 @@ var CATEGORIES_PROPERTY = 'CATEGORIES_JSON';
 var TAGS_PROPERTY = 'TAGS_JSON';
 var AUTHORS_PROPERTY = 'AUTHORS_JSON';
 
-// 保存先シート。1行1件。列を増やすときは右端（ID の右）に追加すれば既存の処理は壊れない
+// 保存先シート。1行1件。
+// 16列目以降（発信者〜申込URL）は後から追加した列。既存のシートには、次に開いたときに見出しを自動で足す。
+// 自分で列を増やすときは、いちばん右（申込URL の右）に追加すれば既存の処理は壊れない
 var SHEET_NAME = '投稿一覧';
 var HEADER = [
   '登録日時', '種別', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
-  'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID'
+  'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
+  '発信者', 'トーク本文', '参加URL', '申込URL'
 ];
 var COL = {
   SAVED_AT: 1, KIND: 2, SOURCE: 3, CATEGORY: 4, TITLE: 5, SUMMARY: 6, URL: 7,
-  ORIGINAL: 8, TAGS: 9, EVENT: 10, PLACE: 11, DEADLINE: 12, PERFORMERS: 13, MEMO: 14, ID: 15
+  ORIGINAL: 8, TAGS: 9, EVENT: 10, PLACE: 11, DEADLINE: 12, PERFORMERS: 13, MEMO: 14, ID: 15,
+  AUTHOR: 16, TALK: 17, JOIN_URL: 18, APPLY_URL: 19
 };
 var PAGE_SIZE = 50;
 
@@ -285,8 +289,20 @@ function handleAnalyze_(body) {
     result.originalFromImage = true;
   }
 
+  // 参加 URL・申込 URL は、原文（または画像の読み取り結果）に実際にある URL だけを残す
+  var urlSourceText = [result.originalText, result.imageText].join('\n');
+  [['joinUrl', '参加 URL'], ['applyUrl', '申込 URL']].forEach(function (pair) {
+    var proposed = result.event[pair[0]];
+    if (!proposed) { return; }
+    var found = findUrlInText_(proposed, urlSourceText);
+    result.event[pair[0]] = found ? cleanUrl_(found) : '';
+    if (!found) {
+      warnings.push('AI が示した' + pair[1] + 'は原文に見つからなかったため、外しました（' + proposed + '）');
+    }
+  });
+
   result.legislatorTags = matchLegislators_(
-    // 投稿者名も対象にする（議員本人の X 投稿・note 記事にもタグを付けるため）
+    // 発信者名も対象にする（議員本人の X 投稿・note 記事にもタグを付けるため）
     [result.author, result.title, result.originalText, result.imageText].join('\n'),
     APP_CONFIG.legislators
   );
@@ -631,13 +647,15 @@ function buildGeminiAnalyzeRequest_(options) {
     },
     area: { type: 'STRING', description: '対面の場合の地名を数文字で（例: 高崎、神戸三宮、渋谷）。会場名・住所・階数は書かない。対面でなければ空文字' },
     deadline: { type: 'STRING', description: '申込締切日。YYYY-MM-DD の絶対日付。無ければ空文字' },
+    joinUrl: { type: 'STRING', description: '参加用の URL（配信・オンライン会議）。本文に書かれている URL をそのまま書き写す。無ければ空文字' },
+    applyUrl: { type: 'STRING', description: '申込用の URL（申込フォームなど）。本文に書かれている URL をそのまま書き写す。無ければ空文字' },
     performers: { type: 'STRING', description: '出演者・登壇者。複数なら「、」区切り。無ければ空文字' },
     imageText: { type: 'STRING', description: '画像がある場合、画像内の文字を読みやすく整えた文章。事実は変えない。画像が無ければ空文字' },
     flyerWeekday: { type: 'STRING', description: '画像やチラシに書かれている開催日の曜日（日・月・火・水・木・金・土のどれか1文字）。書かれていなければ空文字' },
     dateUncertain: { type: 'BOOLEAN', description: '開催日時が確定していない（「AまたはB」「いずれか」「未定」「調整中」など）なら true。そのとき eventDate・startTime・endTime は空文字にする' },
     dateNote: { type: 'STRING', description: 'dateUncertain が true のとき、原文に書かれた日時の候補や状況をそのまま短く（例: 10月7日または10月8日、21:30〜）。それ以外は空文字' }
   };
-  var required = ['title', 'summaryPoints', 'eventDate', 'startTime', 'endTime', 'attendance', 'area', 'deadline', 'performers', 'imageText', 'flyerWeekday', 'dateUncertain', 'dateNote'];
+  var required = ['title', 'summaryPoints', 'eventDate', 'startTime', 'endTime', 'attendance', 'area', 'deadline', 'joinUrl', 'applyUrl', 'performers', 'imageText', 'flyerWeekday', 'dateUncertain', 'dateNote'];
 
   properties.kind = { type: 'STRING', enum: kindKeys, description: '種別' };
   required.push('kind');
@@ -658,6 +676,7 @@ function buildGeminiAnalyzeRequest_(options) {
     '曜日は計算しないでください。画像やチラシに曜日が書かれている場合だけ、書かれている曜日を flyerWeekday に入れてください。',
     '日時が確定していない場合（候補が複数ある、未定、調整中など）は、日付を1つに決めつけず、dateUncertain を true にして eventDate・startTime・endTime を空にしてください。',
     '概略（summaryPoints）は要点を1つずつ配列にし、簡潔に書きます。各要点はできるだけ体言止めにし（例: 「配信を行います。」ではなく「生配信を実施」）、です・ます体は使わず、文末の「。」も付けません。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドにて」は書かないでください。',
+    '参加 URL（joinUrl）と申込 URL（applyUrl）は、本文に書かれている URL をそのまま書き写してください。本文に無い URL を作ったり推測したりしないでください。',
     '開催場所は、開催形式（attendance）と、対面の場合の短い地名（area）に分けてください。会場名や住所はスレッドの原文に残るので、area には書きません。',
     '種別の定義:\n' + kindGuide
   ].join('\n');
@@ -746,6 +765,8 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
       endTime: uncertain ? '' : time(json.endTime),
       place: buildPlaceLabel_(str(json.attendance), str(json.area)) || str(json.place),
       deadline: date(json.deadline),
+      joinUrl: /^https?:\/\/\S+$/i.test(str(json.joinUrl)) ? str(json.joinUrl) : '',
+      applyUrl: /^https?:\/\/\S+$/i.test(str(json.applyUrl)) ? str(json.applyUrl) : '',
       performers: str(json.performers)
     },
     imageText: str(json.imageText),
@@ -809,6 +830,21 @@ function buildPlaceLabel_(attendance, area) {
   if (attendance === 'online') { return labels.online || 'オンライン'; }
   if (attendance === 'in_person' || attendance === 'hybrid') { return pick(attendance); }
   return name;
+}
+
+/**
+ * 文章の中から、指定の URL と同じもの（追跡用パラメーターなどの違いは無視）を探して返す純粋関数。
+ * 見つからなければ空文字。AI が原文に無い URL を作っていないかを確かめるために使う。
+ */
+function findUrlInText_(url, text) {
+  var target = normalizeUrlForCompare_(url);
+  if (!target) { return ''; }
+  var candidates = String(text || '').match(/https?:\/\/[^\s"'<>。、「」『』（）]+/g) || [];
+  for (var i = 0; i < candidates.length; i++) {
+    var candidate = candidates[i].replace(/[.,!?！？]+$/, '');
+    if (normalizeUrlForCompare_(candidate) === target) { return candidate; }
+  }
+  return '';
 }
 
 /** 'YYYY-MM-DD' が実在する日付か */
@@ -958,15 +994,35 @@ function matchLegislators_(text, legislators) {
 
 // ---- 保存・一覧（スプレッドシート） ---------------------------------
 
-/** 保存先シートを返す。無ければ作り、空ならヘッダー行を書く */
+/** 保存先シートを返す。無ければ作り、空ならヘッダー行を書く。既存のシートは見出しを補う */
 function getSheet_() {
   var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = spreadsheet.getSheetByName(SHEET_NAME) || spreadsheet.insertSheet(SHEET_NAME);
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(HEADER);
     sheet.setFrozenRows(1);
+  } else {
+    ensureHeader_(sheet);
   }
   return sheet;
+}
+
+/**
+ * 見出し行を確かめ、後から追加した列（発信者など）の見出しが空なら書き足す。
+ * 同じ位置に別の見出し（利用者が自分で足した列）があれば、データを上書きしないよう止める。
+ */
+function ensureHeader_(sheet) {
+  var current = sheet.getRange(1, 1, 1, HEADER.length).getValues()[0];
+  for (var i = 0; i < HEADER.length; i++) {
+    var value = String(current[i] === undefined || current[i] === null ? '' : current[i]).trim();
+    if (!value) {
+      sheet.getRange(1, i + 1, 1, 1).setValues([[HEADER[i]]]);
+    } else if (value !== HEADER[i]) {
+      throw new Error('スプレッドシート「' + SHEET_NAME + '」の ' + (i + 1) + ' 列目の見出しが「' + value +
+        '」になっています。アプリはこの列を「' + HEADER[i] + '」として使うため、自分で足した列は「' +
+        HEADER[HEADER.length - 1] + '」の列より右へ移してください');
+    }
+  }
 }
 
 /** データ行（2行目以降、ID 列まで）をすべて読む。右側に足した列は読まない */
@@ -1005,7 +1061,11 @@ function validatePostInput_(body) {
     place: str(body.place).trim(),
     deadline: str(body.deadline).trim(),
     performers: str(body.performers).trim(),
-    memo: str(body.memo)
+    memo: str(body.memo),
+    author: str(body.author).trim(),
+    talk: str(body.talk),
+    joinUrl: str(body.joinUrl).trim(),
+    applyUrl: str(body.applyUrl).trim()
   };
 
   if (!item.title) { throw new Error('タイトルを入力してください'); }
@@ -1013,6 +1073,8 @@ function validatePostInput_(body) {
   if (!findByKey_(APP_CONFIG.sources, item.source)) { throw new Error('入力元を選んでください'); }
   if (getCategories_().indexOf(item.category) === -1) { throw new Error('カテゴリを選んでください'); }
   if (item.url && !/^https?:\/\/\S+$/i.test(item.url)) { throw new Error('URL の形式が正しくありません'); }
+  if (item.joinUrl && !/^https?:\/\/\S+$/i.test(item.joinUrl)) { throw new Error('参加 URL の形式が正しくありません'); }
+  if (item.applyUrl && !/^https?:\/\/\S+$/i.test(item.applyUrl)) { throw new Error('申込 URL の形式が正しくありません'); }
   if (item.eventIso && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}\+09:00(\/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\+09:00)?)?$/.test(item.eventIso)) {
     throw new Error('開催日時の形式が正しくありません: ' + item.eventIso);
   }
@@ -1028,7 +1090,7 @@ function validatePostInput_(body) {
     if (allowedTags.indexOf(tag) === -1) { throw new Error('不明なタグです: ' + tag); }
   });
 
-  ['title', 'summary', 'original', 'memo', 'place', 'performers'].forEach(function (key) {
+  ['title', 'summary', 'original', 'memo', 'place', 'performers', 'author', 'talk'].forEach(function (key) {
     // アポストロフィの1文字分を見込む
     if (item[key].length + 1 > limit) {
       throw new Error('「' + key + '」が長すぎます（スプレッドシートの1セルは ' + limit + ' 文字まで）');
@@ -1066,6 +1128,10 @@ function itemToRow_(item, savedAt, id) {
   row[COL.PERFORMERS - 1] = sanitizeCellText_(item.performers);
   row[COL.MEMO - 1] = sanitizeCellText_(item.memo);
   row[COL.ID - 1] = sanitizeCellText_(id);
+  row[COL.AUTHOR - 1] = sanitizeCellText_(item.author);
+  row[COL.TALK - 1] = sanitizeCellText_(item.talk);
+  row[COL.JOIN_URL - 1] = sanitizeCellText_(item.joinUrl);
+  row[COL.APPLY_URL - 1] = sanitizeCellText_(item.applyUrl);
   return row;
 }
 
@@ -1095,7 +1161,11 @@ function rowToItem_(row) {
     place: str(COL.PLACE),
     deadline: str(COL.DEADLINE),
     performers: str(COL.PERFORMERS),
-    memo: str(COL.MEMO)
+    memo: str(COL.MEMO),
+    author: str(COL.AUTHOR),
+    talk: str(COL.TALK),
+    joinUrl: str(COL.JOIN_URL),
+    applyUrl: str(COL.APPLY_URL)
   };
 }
 
@@ -1245,7 +1315,7 @@ function handleSearch_(body) {
     if (kind && item.kind !== kind) { continue; }
     if (tags.length && !tags.every(function (t) { return item.tags.indexOf(t) !== -1; })) { continue; }
     if (keyword) {
-      var haystack = [item.title, item.summary, item.original, item.memo, item.tags.join(','), item.place, item.performers]
+      var haystack = [item.title, item.summary, item.original, item.memo, item.tags.join(','), item.place, item.performers, item.author, item.talk]
         .join('\n').toLowerCase();
       if (haystack.indexOf(keyword) === -1) { continue; }
     }
@@ -1257,12 +1327,12 @@ function handleSearch_(body) {
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
 }
 
-// ---- カテゴリ・タグ・投稿者の候補の管理（スクリプトプロパティ） ----------------
+// ---- カテゴリ・タグ・発信者の候補の管理（スクリプトプロパティ） ----------------
 
 var LIST_DEFS = {
   category: { property: CATEGORIES_PROPERTY, label: 'カテゴリ', key: 'categories' },
   tag: { property: TAGS_PROPERTY, label: 'タグ', key: 'tags' },
-  author: { property: AUTHORS_PROPERTY, label: '投稿者・発信者の候補', key: 'authors' }
+  author: { property: AUTHORS_PROPERTY, label: '発信者の候補', key: 'authors' }
 };
 
 /** カテゴリ一覧。未初期化・壊れていれば Config.gs の初期カテゴリで初期化する */
@@ -1286,7 +1356,7 @@ function getTags_() {
 }
 
 /**
- * 投稿者・発信者の候補一覧。未初期化・壊れていれば Config.gs の初期値で初期化する。
+ * 発信者の候補一覧。未初期化・壊れていれば Config.gs の初期値で初期化する。
  * 全部消して0件にした状態も正常として扱う（初期値に戻さない）。
  */
 function getAuthors_() {

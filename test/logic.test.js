@@ -382,7 +382,7 @@ test('defaultUseThread: note・一般の Web 記事はスレッドなし、ロ�
   assert.strictEqual(L.defaultUseThread(CONFIG, '未知の入力元', 'https://example.com/'), true);
 });
 
-test('buildTalkBody: スレッドなしなら結びを「全文はこちら ➡️」＋ URL にし、URL が無ければ結びを出さない', () => {
+test('buildTalkBody: スレッドなしなら結びを「全文はこちら ⬇️」＋ URL にし、URL が無ければ結びを出さない', () => {
   const post = {
     title: '国会対策一年史', summary: '・要点1\n・要点2', kind: 'article', source: 'note', author: '須田',
     url: 'https://note.com/btaros/n/n4afd1c591625', useThread: false
@@ -393,7 +393,7 @@ test('buildTalkBody: スレッドなしなら結びを「全文はこちら ➡�
     '・要点2',
     '',
     'noteから、須田さんの記事です。',
-    '全文はこちら ➡️',
+    '全文はこちら ⬇️',
     'https://note.com/btaros/n/n4afd1c591625'
   ].join('\n'));
   const noUrl = L.buildTalkBody(Object.assign({}, post, { url: '' }), CONFIG, '2026-10-04');
@@ -421,4 +421,38 @@ test('ひな形: Instagram・Threads の出典行と前置き（名前あり・�
   assert.strictEqual(L.pickTemplate(CONFIG.sourceLines, 'threads', ''), 'Threadsの投稿からの転載です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'instagram', '山田', false), '↑山田さんのInstagramの投稿です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'threads', '', false), '↑Threadsの投稿です。');
+});
+
+// ---- 参加URL・申込URL・会議URLの警告 -----------------------------------
+
+test('buildTalkBody: スケジュール型は参加URLを場所の下、申込URLを申込締切の下に出す', () => {
+  const body = L.buildTalkBody({
+    title: '勉強会', summary: '', kind: 'schedule', source: 'slack', author: '',
+    event: {
+      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（高崎）＆オンライン',
+      joinUrl: 'https://www.youtube.com/live/abc', performers: '', deadline: '2026-10-20',
+      applyUrl: 'https://forms.gle/xyz'
+    }
+  }, CONFIG, '2026-10-04');
+  assert.strictEqual(body, [
+    '【勉強会】',
+    '',
+    '📅 10/24(土) 13:00〜17:00',
+    '📍 対面（高崎）＆オンライン',
+    '📺 参加: https://www.youtube.com/live/abc',
+    '⏰ 申込締切: 10/20(火)',
+    '📝 申込: https://forms.gle/xyz',
+    '',
+    'Slackからの転載です。',
+    '詳細はスレッドにて ➡️'
+  ].join('\n'));
+});
+
+test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警告し、YouTube などは警告しない', () => {
+  assert.match(L.meetingUrlWarning(['https://us02web.zoom.us/j/123?pwd=x']), /オンライン会議の URL/);
+  assert.match(L.meetingUrlWarning(['', 'https://meet.google.com/abc-defg-hij']), /meet\.google\.com/);
+  assert.match(L.meetingUrlWarning(['https://teams.microsoft.com/l/meetup-join/1']), /公開してよい URL か/);
+  assert.strictEqual(L.meetingUrlWarning(['https://www.youtube.com/live/abc', 'https://forms.gle/xyz']), '');
+  assert.strictEqual(L.meetingUrlWarning(['https://example.com/zoom.us/']), '', 'パスに含まれるだけなら会議 URL ではない');
+  assert.strictEqual(L.meetingUrlWarning([]), '');
 });
