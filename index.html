@@ -307,6 +307,13 @@
         <p id="sheetHelp" class="help">接続できると、ここに保存先のスプレッドシートへのリンクが出ます。開けるのは、シートの共有設定で閲覧を許可された Google アカウントの人だけです（「リンクを知っている全員」にすると、URL を知っている人は誰でも見られます）。</p>
       </section>
 
+      <section aria-labelledby="publicSheetHeading">
+        <h2 id="publicSheetHeading" tabindex="-1">公開用スプレッドシート</h2>
+        <p id="publicSheetLinkArea" hidden><a id="publicSheetLink" href="#" target="_blank" rel="noopener noreferrer">公開用スプレッドシートを開く（新しいタブ）</a></p>
+        <p id="publicSheetState" class="help">保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID とトーク本文は載せません）。</p>
+        <button type="button" id="syncPublicSheetButton" class="button secondary" hidden>公開用シートを作り直す</button>
+      </section>
+
       <section aria-labelledby="usageHeading">
         <h2 id="usageHeading">AI の使用量（概算）</h2>
         <p id="usageSummary">接続すると、今月の概算が表示されます。</p>
@@ -316,7 +323,7 @@
       <section aria-labelledby="archiveHeading">
         <h2 id="archiveHeading">公開の一覧ページ</h2>
         <p><a id="archiveLink" href="/archive.html" target="_blank" rel="noopener noreferrer">公開の一覧ページを開く（新しいタブ）</a></p>
-        <p id="archiveState" class="help">合言葉なしで誰でも読める、記録の一覧です（メモと ID は出ません）。オープンチャットにはこのページの URL を貼ります。</p>
+        <p id="archiveState" class="help">合言葉なしで誰でも読める、記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。</p>
       </section>
 
       <section aria-labelledby="categoryManageHeading">

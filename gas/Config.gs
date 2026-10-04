@@ -120,6 +120,18 @@ var APP_CONFIG = {
   // メモ欄のコメントをスレッドに添えるときの書式
   commentLine: '💬 {memo}',
 
+  // 公開用スプレッドシートの「記録一覧」タブ（スクリプトプロパティ PUBLIC_SPREADSHEET_ID があるときだけ書き写す）
+  //   保存・更新・削除のたびに、このタブを丸ごと書き直す（手で書き換えた内容は消える）。ほかのタブには触らない
+  publicSheet: {
+    tabName: '記録一覧',
+    // 公開の一覧ページの URL（タイトルのリンク先）。フォークした人は自分のアプリの URL にする
+    archiveUrl: 'https://openchat-post-helper.vercel.app/archive.html',
+    // 載せる列と並び。使える key: savedAt kind author source category title summary event place
+    //   performers deadline joinUrl applyUrl url tags original comment talk
+    columns: ['savedAt', 'kind', 'author', 'source', 'category', 'title', 'summary', 'event', 'place',
+      'performers', 'deadline', 'joinUrl', 'applyUrl', 'url', 'tags', 'original', 'comment']
+  },
+
   // 使用量の概算に使う料金表（2026年10月時点の公式料金。料金改定・為替・モデルの変更に合わせて書き換える）
   // 無料枠で使っている場合、実際の請求は 0 円（ここでの金額は「有料枠だったら」の概算）
   pricing: {

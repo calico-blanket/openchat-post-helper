@@ -122,6 +122,9 @@ function createSheetStub() {
   const values = [];
   const store = (v) => (typeof v === 'string' && v.charAt(0) === "'" ? v.slice(1) : v);
   return {
+    values,
+    name: '',
+    setName(name) { this.name = name; },
     appendRow(row) { values.push(row.map(store)); },
     deleteRow(n) { values.splice(n - 1, 1); },
     setFrozenRows() {},
@@ -130,6 +133,15 @@ function createSheetStub() {
     getLastColumn() { return values.reduce((m, r) => Math.max(m, r ? r.length : 0), 0); },
     getRange(row, col, numRows = 1, numCols = 1) {
       return {
+        clearContent() {
+          for (let r = 0; r < numRows; r++) {
+            const line = values[row - 1 + r];
+            if (line) { for (let c = 0; c < numCols; c++) { line[col - 1 + c] = ''; } }
+          }
+          while (values.length && values[values.length - 1].every((v) => v === '' || v === undefined)) { values.pop(); }
+        },
+        setFontWeight() {},
+        setWrapStrategy() {},
         getValues() {
           const out = [];
           for (let r = 0; r < numRows; r++) {
@@ -143,20 +155,39 @@ function createSheetStub() {
           return out;
         },
         setValues(rows) {
-          rows.forEach((line, r) => line.forEach((v, c) => { values[row - 1 + r][col - 1 + c] = store(v); }));
+          rows.forEach((line, r) => {
+            while (values.length < row + r) { values.push([]); }
+            line.forEach((v, c) => { values[row - 1 + r][col - 1 + c] = store(v); });
+          });
         }
       };
     }
   };
 }
 
+// 公開用スプレッドシートの中身（GET /mock-public で確かめられる）
+let devPublicSheets = {};
+
 function createGasContext() {
   const sheets = {};
+  // 公開用スプレッドシート（開発サーバーでは最初から用意し、書き写しを確かめられるようにする）
+  const publicSheets = {};
+  const publicFile = {
+    getId: () => 'dev-public',
+    getUrl: () => 'https://docs.google.com/spreadsheets/d/dev-public/edit',
+    getSheets: () => Object.values(publicSheets),
+    getSheetByName: (name) => publicSheets[name] || null,
+    insertSheet: (name) => { publicSheets[name] = createSheetStub(); publicSheets[name].name = name; return publicSheets[name]; }
+  };
+  devPublicSheets = publicSheets;
   // 公開の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
-  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', ARCHIVE_PUBLIC: 'true' };
+  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
   const pad = (n) => String(n).padStart(2, '0');
   const context = {
     SpreadsheetApp: {
+      WrapStrategy: { CLIP: 'CLIP' },
+      openById: (id) => { if (id !== 'dev-public') { throw new Error('ファイルが見つかりません'); } return publicFile; },
+      create: () => publicFile,
       getActiveSpreadsheet: () => ({
         getUrl: () => 'https://docs.google.com/spreadsheets/d/dev-sheet-id/edit',
         getSheetByName: (name) => sheets[name] || null,
@@ -211,6 +242,14 @@ const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent(requestUrl.pathname);
 
   // 公開の一覧の入口（GET ?action=archive）。合言葉なし
+  // 開発用: 公開用スプレッドシートの「記録一覧」タブの中身を JSON で見る
+  if (urlPath === '/mock-public' && req.method === 'GET') {
+    const tab = devPublicSheets['記録一覧'];
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(tab ? tab.values : []));
+    return;
+  }
+
   if (urlPath === '/mock-gas' && req.method === 'GET') {
     const parameter = Object.fromEntries(requestUrl.searchParams.entries());
     const output = gas.doGet({ parameter });

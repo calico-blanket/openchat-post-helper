@@ -199,6 +199,12 @@
       children.push(el('p', { className: 'text-box', text: summary }));
     }
 
+    var comment = String(item.comment || '');
+    if (comment) {
+      children.push(el('h3', { text: 'コメント' }));
+      children.push(el('p', { className: 'text-box', text: comment }));
+    }
+
     var links = [safeLink(item.url, '元の投稿・記事'), safeLink(item.joinUrl, '参加'), safeLink(item.applyUrl, '申込')].filter(Boolean);
     if (links.length) { children.push(el('div', { className: 'links' }, links)); }
 
@@ -229,6 +235,43 @@
     return el('div', { className: 'detail', id: detailId }, children);
   }
 
+  // ---- 公開用シートのタイトルのリンク（?q=タイトル&at=登録日時）から開いたとき ----
+
+  var linked = null;
+
+  /**
+   * URL の ?q= を検索欄に入れ、?at=（登録日時）と一致する投稿を開いた状態にする。
+   * 一致する投稿が無ければ、検索した状態だけにする。
+   */
+  function openLinkedItem() {
+    var params = new URLSearchParams(location.search);
+    var q = params.get('q') || '';
+    var at = params.get('at') || '';
+    if (!q && !at) { return; }
+    if (q) {
+      state.q = q;
+      $('archiveSearch').value = q;
+    }
+    var hit = state.items.filter(function (item) {
+      return (!at || item.savedAt === at) && (!q || item.title === q);
+    })[0];
+    if (hit) {
+      state.openKey = hit._key;
+      linked = hit._key;
+    }
+  }
+
+  /** 開いた投稿の行を画面に入れ、キーボードの位置もそこに移す */
+  function focusLinkedItem() {
+    if (linked === null) { return; }
+    var button = document.querySelector('[data-key="' + linked + '"] .row-button');
+    if (button) {
+      button.scrollIntoView({ block: 'start' });
+      button.focus();
+    }
+    linked = null;
+  }
+
   // ---- 読み込み -------------------------------------------------
 
   function load() {
@@ -247,7 +290,9 @@
       state.items = (json.items || []).map(function (item, index) {
         return Object.assign({ _key: index }, item);
       });
+      openLinkedItem();
       render();
+      focusLinkedItem();
     }).catch(function (err) {
       setStatus('一覧を読み込めませんでした: ' + err.message);
     });

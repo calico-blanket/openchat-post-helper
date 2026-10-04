@@ -169,9 +169,17 @@
     var isSheetUrl = /^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl);
     $('sheetLink').href = isSheetUrl ? sheetUrl : '#';
     $('sheetLinkArea').hidden = !isSheetUrl;
+    var publicUrl = String(boot.publicSpreadsheetUrl || '');
+    var hasPublic = /^https:\/\/docs\.google\.com\/spreadsheets\//.test(publicUrl);
+    $('publicSheetLink').href = hasPublic ? publicUrl : '#';
+    $('publicSheetLinkArea').hidden = !hasPublic;
+    $('syncPublicSheetButton').hidden = !hasPublic;
+    $('publicSheetState').textContent = hasPublic
+      ? '保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID とトーク本文は載せません）。内容がずれていると感じたら「作り直す」を押してください。'
+      : 'まだ設定されていません。GAS エディタで関数 createPublicSpreadsheet を1回実行すると作られます（README 参照）。';
     $('usageSummary').textContent = L.usageSummaryText(boot.usageThisMonth) || '今月の概算は、まだありません。';
     $('archiveState').textContent = boot.archivePublic
-      ? '公開中です。合言葉なしで誰でも読める記録の一覧です（メモと ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
+      ? '公開中です。合言葉なしで誰でも読める記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
       : 'いまは公開していません。公開するには、GAS のスクリプトプロパティ ARCHIVE_PUBLIC を true にし、archive-config.js に GAS の URL を入れます（README 参照）。';
   }
 
@@ -820,7 +828,12 @@
         $('deleteButton').hidden = false;
       }
       state.list.loaded = false;
-      announce(post.id ? '更新しました' : '保存しました');
+      var done = post.id ? '更新しました' : '保存しました';
+      if (json.publicSheet && json.publicSheet.ok === false) {
+        alertMessage(done + '。ただし、公開用シートの書き直しに失敗しました（' + json.publicSheet.error + '）。設定画面の「公開用シートを作り直す」を試してください');
+      } else {
+        announce(done);
+      }
     }).catch(function (err) {
       setBusy(button, false);
       alertMessage('保存できませんでした: ' + err.message);
@@ -831,9 +844,13 @@
     if (!window.confirm('「' + title + '」を削除します。元に戻せません（スプレッドシートの版の履歴からは戻せます）。よろしいですか？')) {
       return;
     }
-    gasCall({ action: 'delete', id: id }).then(function () {
+    gasCall({ action: 'delete', id: id }).then(function (json) {
       state.list.loaded = false;
-      announce('「' + title + '」を削除しました');
+      if (json.publicSheet && json.publicSheet.ok === false) {
+        alertMessage('「' + title + '」を削除しました。ただし、公開用シートの書き直しに失敗しました（' + json.publicSheet.error + '）。設定画面の「公開用シートを作り直す」を試してください');
+      } else {
+        announce('「' + title + '」を削除しました');
+      }
       if (after) { after(); }
     }).catch(function (err) {
       alertMessage('削除できませんでした: ' + err.message);
@@ -1143,6 +1160,17 @@
     $('addCategoryButton').addEventListener('click', function () { addListItem('category'); });
     $('addTagButton').addEventListener('click', function () { addListItem('tag'); });
     $('addAuthorButton').addEventListener('click', function () { addListItem('author'); });
+    $('syncPublicSheetButton').addEventListener('click', function () {
+      var button = $('syncPublicSheetButton');
+      setBusy(button, true, '作り直しています…');
+      gasCall({ action: 'syncPublicSheet' }).then(function (json) {
+        setBusy(button, false);
+        announce('公開用シートを作り直しました（' + json.count + ' 件）');
+      }).catch(function (err) {
+        setBusy(button, false);
+        alertMessage('公開用シートを作り直せませんでした: ' + err.message);
+      });
+    });
     $('clearTimingButton').addEventListener('click', function () {
       writeStorage(TIMING_KEY, []);
       renderTimings();
