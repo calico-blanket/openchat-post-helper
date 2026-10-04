@@ -249,7 +249,8 @@ test('save: 1行1件で、ヘッダーどおりの列に書き込む（種別・
   const [header, row] = env.sheet().values;
   assert.deepStrictEqual(Array.from(header), [
     '登録日時', '種別', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
-    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID'
+    'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
+    '発信者', 'トーク本文', '参加URL', '申込URL'
   ]);
   assert.strictEqual(row[1], 'スケジュール');
   assert.strictEqual(row[2], 'Slack');
@@ -332,14 +333,38 @@ test('update: 自分自身の URL は重複扱いしないが、ほかの投稿�
   assert.strictEqual(post(env, validPost({ action: 'update', id: a.id, url: 'https://example.com/b' })).ok, false);
 });
 
-test('右側に列を追加しても、読み取り・編集は壊れず追加列の値も残る', () => {
+test('右側（申込URL の右）に列を追加しても、読み取り・編集は壊れず追加列の値も残る', () => {
   const env = load();
   const saved = post(env, validPost());
-  env.sheet().values[0].push('投稿済み');
-  env.sheet().values[1].push('TRUE');
+  env.sheet().values[0][19] = '投稿済み';
+  env.sheet().values[1][19] = 'TRUE';
   assert.strictEqual(post(env, { action: 'search' }).items[0].id, saved.id);
   assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, title: '更新' })).ok, true);
-  assert.strictEqual(env.sheet().values[1][15], 'TRUE');
+  assert.strictEqual(env.sheet().values[1][19], 'TRUE');
+});
+
+test('既存のシート（ID までの15列）には、発信者〜申込URL の見出しを自動で足し、古い行は空欄のまま読める', () => {
+  const env = load();
+  post(env, validPost({ title: '古い行' }));
+  // 15列だった頃のシートを再現する
+  env.sheet().values[0] = env.sheet().values[0].slice(0, 15);
+  env.sheet().values[1] = env.sheet().values[1].slice(0, 15);
+  const item = post(env, { action: 'search' }).items[0];
+  assert.strictEqual(item.title, '古い行');
+  assert.strictEqual(item.author, '');
+  assert.strictEqual(item.talk, '');
+  assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL']);
+});
+
+test('16〜19列目に自分で足した別の列があれば、上書きせずに止める', () => {
+  const env = load();
+  post(env, validPost());
+  env.sheet().values[0][15] = '投稿済み';
+  const r = post(env, validPost({ url: '' }));
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /16 列目の見出しが「投稿済み」/);
+  assert.match(r.error, /申込URL」の列より右へ移して/);
+  assert.strictEqual(env.sheet().values.length, 2, '保存していない');
 });
 
 test('search: 新しい順・キーワードは原文も対象・カテゴリ/種別/タグ(AND)で絞り込み・50件ずつ', () => {
@@ -866,4 +891,82 @@ test('保存: Instagram・Threads も入力元として保存でき、表示名�
   const items = post(env, { action: 'search' }).items;
   assert.deepStrictEqual(items.map((i) => i.source), ['threads', 'instagram']);
   assert.deepStrictEqual(env.sheet().values.slice(1).map((r) => r[2]), ['Instagram', 'Threads']);
+});
+
+// ---- 記録項目（発信者・トーク本文・参加URL・申込URL） --------------------------
+
+test('保存・更新: 発信者・トーク本文・参加URL・申込URL を16〜19列目に保存し、検索結果で復元する', () => {
+  const env = load();
+  const talk = '【勉強会】\n\n📅 10/24(土) 13:00〜\n=手で直した行\n\nSlackからの転載です。';
+  const saved = post(env, validPost({
+    author: '運営アカウント', talk,
+    joinUrl: 'https://www.youtube.com/live/abc', applyUrl: 'https://forms.gle/xyz'
+  }));
+  assert.strictEqual(saved.ok, true, saved.error);
+  const row = env.sheet().values[1];
+  assert.deepStrictEqual(Array.from(row).slice(15, 19), ['運営アカウント', talk, 'https://www.youtube.com/live/abc', 'https://forms.gle/xyz']);
+  // 数式インジェクション対策は新しい列にも効く
+  assert.ok(env.sheet().raw[1].slice(15, 19).every((c) => c.charAt(0) === "'"));
+  const item = post(env, { action: 'search' }).items[0];
+  assert.strictEqual(item.author, '運営アカウント');
+  assert.strictEqual(item.talk, talk);
+  assert.strictEqual(item.joinUrl, 'https://www.youtube.com/live/abc');
+  assert.strictEqual(item.applyUrl, 'https://forms.gle/xyz');
+
+  assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, author: '広報', talk: '直した文', joinUrl: '', applyUrl: '' })).ok, true);
+  const updated = post(env, { action: 'search' }).items[0];
+  assert.deepStrictEqual([updated.author, updated.talk, updated.joinUrl, updated.applyUrl], ['広報', '直した文', '', '']);
+});
+
+test('検索: 発信者とトーク本文もキーワードの対象', () => {
+  const env = load();
+  post(env, validPost({ url: '', title: 'A', author: '須田英太郎' }));
+  post(env, validPost({ url: '', title: 'B', talk: 'トークにだけある語XYZ' }));
+  assert.deepStrictEqual(post(env, { action: 'search', keyword: '須田' }).items.map((i) => i.title), ['A']);
+  assert.deepStrictEqual(post(env, { action: 'search', keyword: 'xyz' }).items.map((i) => i.title), ['B']);
+});
+
+test('保存: 参加URL・申込URL の形式を検証し、発信者・トーク本文の長さも確かめる', () => {
+  const env = load();
+  assert.match(post(env, validPost({ joinUrl: 'javascript:alert(1)' })).error, /参加 URL の形式/);
+  assert.match(post(env, validPost({ applyUrl: 'forms.gle/xyz' })).error, /申込 URL の形式/);
+  assert.match(post(env, validPost({ talk: 'あ'.repeat(50000) })).error, /長すぎます/);
+});
+
+test('analyze: 参加URL・申込URL は原文にあるものだけ残し（整えた形）、無いものは外して警告する', () => {
+  const original = '配信はこちら https://www.youtube.com/live/abc?si=track 。申込は https://forms.gle/xyz から。';
+  const env = load({
+    fetch: () => geminiRes(geminiAnalyze({
+      joinUrl: 'https://www.youtube.com/live/abc', applyUrl: 'https://forms.gle/xyz'
+    }))
+  });
+  const r = post(env, { action: 'analyze', text: original });
+  assert.strictEqual(r.event.joinUrl, 'https://www.youtube.com/live/abc');
+  assert.strictEqual(r.event.applyUrl, 'https://forms.gle/xyz');
+
+  const env2 = load({
+    fetch: () => geminiRes(geminiAnalyze({ joinUrl: 'https://zoom.us/j/999', applyUrl: 'ftp://bad' }))
+  });
+  const r2 = post(env2, { action: 'analyze', text: original });
+  assert.strictEqual(r2.event.joinUrl, '', '原文に無い URL は捨てる');
+  assert.strictEqual(r2.event.applyUrl, '', 'http(s) でないものは捨てる');
+  assert.ok(r2.warnings.some((w) => /参加 URLは原文に見つからなかったため、外しました（https:\/\/zoom\.us\/j\/999）/.test(w)));
+
+  const schema = JSON.parse(env.calls[0].payload).generationConfig.responseSchema;
+  assert.ok(schema.required.includes('joinUrl') && schema.required.includes('applyUrl'));
+  assert.match(JSON.parse(env.calls[0].payload).systemInstruction.parts[0].text, /本文に無い URL を作ったり推測したりしないで/);
+});
+
+test('findUrlInText_: 追跡用パラメーターや末尾の句読点の違いは同じ URL とみなす', () => {
+  const { context } = load();
+  const f = context.findUrlInText_;
+  assert.strictEqual(f('https://example.com/a', '詳しくは https://example.com/a?utm_source=x。'), 'https://example.com/a?utm_source=x');
+  assert.strictEqual(f('https://example.com/a', 'https://example.com/a!'), 'https://example.com/a');
+  assert.strictEqual(f('https://example.com/b', 'https://example.com/a'), '');
+  assert.strictEqual(f('', 'https://example.com/a'), '');
+});
+
+test('発信者の候補: 管理画面の名前は「発信者の候補」', () => {
+  const env = load();
+  assert.match(post(env, { action: 'removeAuthor', name: 'いない人' }).error, /存在しない発信者の候補です/);
 });

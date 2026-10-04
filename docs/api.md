@@ -13,7 +13,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（投稿者・発信者の候補）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
 | `summarize` | `text` `length: "half" \| "3lines"` | `summary` |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
@@ -24,7 +24,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | `reorderCategories` | `categories: []` | `categories` |
 | `addTag` / `removeTag` | `name` | `tags` |
 | `reorderTags` | `tags: []` | `tags` |
-| `addAuthor` / `removeAuthor` | `name` | `authors`（投稿者・発信者の候補。0件も可） |
+| `addAuthor` / `removeAuthor` | `name` | `authors`（発信者の候補。0件も可） |
 | `reorderAuthors` | `authors: []` | `authors` |
 
 ### analyze の結果
@@ -34,7 +34,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | `source` | 入力元（指定がなければ URL から推定。画像だけなら `flyer`） |
 | `resolvedUrl` | 短縮 URL などを解決し、追跡用パラメーターを取り除いた URL（Amazon は `/dp/商品番号` の形） |
 | `fetchStatus` | `ok`（取得できた）／`needs_paste`（本文の貼り付けが必要）／`none`（URL なし） |
-| `author` | X・note の投稿者名 |
+| `author` | X・note の発信者名 |
 | `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章 |
 | `originalFromImage` | 原文が画像からの読み取りか |
 | `title` `summary` `kind` | タイトル、概略、種別（`schedule`／`article`／`legislator`） |
@@ -42,27 +42,31 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 | `imageText` `flyerWeekday` | 画像から読み取った文字と、チラシに書かれた曜日（1文字） |
 | `kind` `category` `tags` の決め方 | Gemini が毎回判定し、Jev のキーがあれば Jev の判定を優先する（Jev が失敗・判定できなければ Gemini の値）。種別が決まらず開催日があれば `schedule` |
 | `category` `tags` | 分類 |
-| `legislatorTags` | 議員名一覧との文字列一致（投稿者名・タイトル・原文が対象） |
+| `legislatorTags` | 議員名一覧との文字列一致（発信者名・タイトル・原文が対象） |
 | `duplicate` | 同じ URL の保存済み投稿 |
 | `warnings` | 取得の失敗、X の途中切れ、Jev の失敗など |
 | `analyzed` | Gemini を呼んだか（本文も画像もなければ呼ばない） |
 
 ### 投稿データ（save / update）
 
-`kind` `source` `category` `title` `summary` `url` `original` `tags: []` `eventIso` `place` `deadline` `performers` `memo`
+`kind` `source` `category` `title` `summary` `url` `original` `tags: []` `eventIso` `place` `deadline` `performers` `memo` `author` `talk` `joinUrl` `applyUrl`
 
 - `eventIso`: `2026-10-03`、`2026-10-03T19:00+09:00`、`2026-10-03T19:00+09:00/2026-10-03T21:00+09:00` のいずれか（空も可）
 - `deadline`: `YYYY-MM-DD`（空も可）
 - `source`: `slack` `x` `instagram` `threads` `line` `note` `legislator` `flyer` `other`（`Config.gs` の `sources`）
 - `original`: 画面で「スレッドにも投稿する」を外し、URL がある投稿は空で送る（全文は URL 先にあるため保存しない）
 - 重複チェックは、追跡用パラメーターを取り除いた URL どうしで比べる（twitter.com と x.com、threads.net と threads.com も同じとみなす）
+- `author`: 発信者。`talk`: 実際にトークに貼る文（手で直した文を含む）
+- `joinUrl`（参加 URL）・`applyUrl`（申込 URL）: `http(s)://` で始まる URL（空も可）。analyze では、AI が示した URL のうち原文に実際にあるものだけを `event.joinUrl`・`event.applyUrl` で返す
 - `tags`: 登録済みタグか、議員名一覧の名前だけ
 - 各値はスプレッドシートの 1 セルの上限（50,000 文字）まで
 
 ## スプレッドシート
 
-シート名「投稿一覧」。1 行 1 件。列は次のとおりです。列を増やすときは **ID の右側に**追加してください（既存の処理は ID 列までしか読み書きしません）。
+シート名「投稿一覧」。1 行 1 件。列は次のとおりです。列を増やすときは **申込URL の右側に**追加してください（既存の処理は申込URL の列までしか読み書きしません）。
 
-登録日時／種別／ソース／カテゴリ／タイトル／概略／URL／スレッド詳細（原文）／タグ／開催日時（ISO）／場所／申込締切／出演者／メモ／ID
+登録日時／種別／ソース／カテゴリ／タイトル／概略／URL（元の投稿・記事）／スレッド詳細（原文）／タグ／開催日時（ISO）／場所／申込締切／出演者／メモ／ID／発信者／トーク本文／参加URL／申込URL
+
+- 16〜19列目（発信者〜申込URL）は後から追加した列です。既存のシートには見出しを自動で補います。同じ位置に別の見出しがあれば、上書きせずにエラーにします。
 
 - 空でない値は、先頭にアポストロフィを付けて「文字列」として書き込みます。`=` などで始まる値が数式として動くこと（数式インジェクション）と、日付風の値が自動変換されることを防ぐためです。

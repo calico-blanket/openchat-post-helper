@@ -258,7 +258,7 @@
    *   概略（スケジュール型では載せない）
    *   （スケジュール型のみ）日時・場所・出演者・申込締切の行
    *   出典行
-   *   結び: スレッドを使うなら「詳細はスレッドにて ➡️」、使わないなら「全文はこちら ➡️」＋ URL
+   *   結び: スレッドを使うなら「詳細はスレッドにて ➡️」、使わないなら「全文はこちら ⬇️」＋ URL
    *         （post.useThread が false のとき。URL が無ければ結びの行は出さない）
    * 出典行と定型句は設定から自動で付ける（LLM には書かせない）。
    * 「本日」「明日」は todayIso（コピーする時点の今日）を基準に計算する。
@@ -289,7 +289,7 @@
     if (sourceLine) { tail.push(sourceLine); }
     if (post.useThread === false) {
       var url = String(post.url || '').trim();
-      if (url) { tail.push(fillTemplate(talk.linkLine || '全文はこちら ➡️\n{url}', { url: url })); }
+      if (url) { tail.push(fillTemplate(talk.linkLine || '全文はこちら ⬇️\n{url}', { url: url })); }
     } else if (talk.detailsLine) {
       tail.push(talk.detailsLine);
     }
@@ -317,6 +317,10 @@
     if (place) {
       lines.push(fillTemplate(talk.placeLine || '📍 {place}', { place: place }));
     }
+    var joinUrl = String(event.joinUrl || '').trim();
+    if (joinUrl) {
+      lines.push(fillTemplate(talk.joinLine || '📺 参加: {url}', { url: joinUrl }));
+    }
     var performers = String(event.performers || '').trim();
     if (performers) {
       lines.push(fillTemplate(talk.performersLine || '🎤 出演: {performers}', { performers: performers }));
@@ -327,6 +331,10 @@
       lines.push(fillTemplate(talk.deadlineLine || '⏰ 申込締切: {deadline}', {
         deadline: (deadlineRelative ? deadlineRelative + ' ' : '') + deadlineLabel
       }));
+    }
+    var applyUrl = String(event.applyUrl || '').trim();
+    if (applyUrl) {
+      lines.push(fillTemplate(talk.applyLine || '📝 申込: {url}', { url: applyUrl }));
     }
     return lines;
   }
@@ -584,6 +592,17 @@
     return '原文では日時がまだ確定していない可能性があります（候補が複数ある、または未定などの表現があります）。トーク本体の日時を言い切ってよいか確認してください。';
   }
 
+  /**
+   * オンライン会議の URL（Zoom・Google Meet・Teams・Webex など）が含まれていれば、
+   * 公開のオープンチャットに載せてよいかを確かめる警告文を返す。なければ空文字。
+   */
+  function meetingUrlWarning(urls) {
+    var pattern = /^https?:\/\/([^/?#]*\.)?(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|webex\.com|whereby\.com)(\/|$|\?)/i;
+    var hits = (urls || []).filter(function (u) { return pattern.test(String(u || '').trim()); });
+    if (!hits.length) { return ''; }
+    return 'オンライン会議の URL が入っています（' + hits.join('、') + '）。公開のオープンチャットに載せると、関係のない人が入ってくるおそれがあります。公開してよい URL か確認してください。';
+  }
+
   // ---- その他 ---------------------------------------------------
 
   /** 配列の index 番目を delta(+1/-1) 方向の隣と入れ替えた新しい配列（範囲外は何もしない） */
@@ -625,6 +644,7 @@
     checkSummary: checkSummary,
     summaryWarnings: summaryWarnings,
     uncertainDateWarning: uncertainDateWarning,
+    meetingUrlWarning: meetingUrlWarning,
     moveArrayItem: moveArrayItem
   };
 }));

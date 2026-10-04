@@ -43,7 +43,7 @@
       </div>
 
       <div class="field">
-        <label for="inputUrl">URL（任意）</label>
+        <label for="inputUrl">元の投稿・記事の URL（任意）</label>
         <input type="url" id="inputUrl" inputmode="url" autocomplete="off" aria-describedby="inputUrlHelp">
         <p id="inputUrlHelp" class="help">note・X などの URL を入れると本文を取りに行きます。Slack の URL からは取れないので、本文も貼り付けてください。</p>
       </div>
@@ -87,81 +87,16 @@
         <!-- ① トークに貼る -->
         <section class="step-box" aria-labelledby="step1Heading">
           <h2 id="step1Heading" tabindex="-1">① トークに貼る</h2>
-          <p class="help">コピーして、オープンチャットのトークに貼ります。「本日」「明日」はコピーした時点の日付で付きます。</p>
-          <pre id="talkPreview" class="message-preview" tabindex="0" aria-label="トーク本体のプレビュー"></pre>
-          <button type="button" id="copyTalkButton" class="button primary">トーク本体をコピー</button>
-
-          <details id="talkEditDetails" class="edit-details">
-            <summary>トークの内容を直す（タイトル・概略・日時など）</summary>
-
-            <div class="field">
-              <label for="fTitle">タイトル（必須。トークでは【】で囲まれます）</label>
-              <input type="text" id="fTitle" required aria-required="true">
-            </div>
-
-            <div class="field">
-              <label for="fSummary">概略（箇条書き）</label>
-              <textarea id="fSummary" rows="5"></textarea>
-            </div>
-
-            <fieldset class="field">
-              <legend>種別（必須）</legend>
-              <div id="fKindGroup" class="radio-group" role="radiogroup" aria-label="種別"></div>
-              <p class="help">「スケジュール」を選ぶと、トークに日時・場所・出演者の行が入ります。</p>
-            </fieldset>
-
-            <div class="field-row">
-              <div class="field">
-                <label for="fSource">入力元</label>
-                <select id="fSource"></select>
-              </div>
-              <div class="field" id="fAuthorField">
-                <label for="fAuthor">投稿者・発信者の名前</label>
-                <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
-                <p id="fAuthorHelp" class="help">スレッドの前置きなどに名前が入ります。空なら名前なしの文になります。</p>
-                <div id="fAuthorPicks" class="pick-group" role="group" aria-label="投稿者名の候補"></div>
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="fUrl">URL</label>
-              <input type="url" id="fUrl" inputmode="url" autocomplete="off" aria-describedby="fUrlHelp">
-              <p id="fUrlHelp" class="help">追跡用の部分を取り除いた形に整えてあります。スレッドを使わないときはトークの最後に、X・Instagram・Threads ではスレッドの1通目に入ります。</p>
-            </div>
-
-            <fieldset class="field event-box" id="eventFields">
-              <legend>開催日時など（必ず原文と見比べてください）</legend>
-              <div class="field-row">
-                <div class="field">
-                  <label for="fEventDate">開催日</label>
-                  <input type="date" id="fEventDate" aria-describedby="fEventWeekdayHelp">
-                  <p class="help" id="fEventWeekdayHelp">曜日: <output id="fEventWeekday" for="fEventDate">—</output></p>
-                </div>
-                <div class="field">
-                  <label for="fStartTime">開始時刻</label>
-                  <input type="time" id="fStartTime">
-                </div>
-                <div class="field">
-                  <label for="fEndTime">終了時刻</label>
-                  <input type="time" id="fEndTime">
-                </div>
-              </div>
-              <p id="weekdayWarning" class="inline-warning" hidden></p>
-              <div class="field">
-                <label for="fPlace">場所</label>
-                <input type="text" id="fPlace">
-              </div>
-              <div class="field">
-                <label for="fPerformers">出演者</label>
-                <input type="text" id="fPerformers">
-              </div>
-              <div class="field">
-                <label for="fDeadline">申込締切</label>
-                <input type="date" id="fDeadline" aria-describedby="fDeadlineWeekdayHelp">
-                <p class="help" id="fDeadlineWeekdayHelp">曜日: <output id="fDeadlineWeekday" for="fDeadline">—</output></p>
-              </div>
-            </fieldset>
-          </details>
+          <div class="field">
+            <label for="fTalk">トーク本体（そのまま編集できます）</label>
+            <textarea id="fTalk" rows="12" aria-describedby="fTalkHelp"></textarea>
+            <p id="fTalkHelp" class="help">AI の提案をもとにした文です。削ったり書き足したりしてから、コピーしてオープンチャットのトークに貼ります。手で直す前は、③の項目を変えると自動で作り直されます。「本日」「明日」は、手で直していなければコピーした時点の日付で付きます。</p>
+          </div>
+          <p id="talkEditedNote" class="help" hidden>手で直した文を使っています。③の項目を変えても、この文は自動では変わりません。</p>
+          <div class="actions">
+            <button type="button" id="copyTalkButton" class="button primary">トーク本体をコピー</button>
+            <button type="button" id="regenTalkButton" class="button secondary">③の項目から作り直す</button>
+          </div>
         </section>
 
         <!-- ② スレッドに貼る -->
@@ -169,7 +104,7 @@
           <h2 id="step2Heading">② スレッドに貼る</h2>
           <div class="field">
             <label class="choice"><input type="checkbox" id="fUseThread" aria-describedby="fUseThreadHelp"> スレッドにも投稿する</label>
-            <p class="help" id="fUseThreadHelp">オフにすると、トーク本体だけで完結する形（最後に「全文はこちら ➡️」と URL）になります。</p>
+            <p class="help" id="fUseThreadHelp">オフにすると、トーク本体だけで完結する形（最後に「全文はこちら ⬇️」と URL）になります。</p>
           </div>
 
           <div id="threadContent">
@@ -214,10 +149,85 @@
           </div>
         </section>
 
-        <!-- ③ 保存する -->
+        <!-- ③ 記録する -->
         <section class="step-box" aria-labelledby="step3Heading">
-          <h2 id="step3Heading">③ 保存する（任意）</h2>
-          <p class="help">あとで一覧から探せるように、スプレッドシートに保存します。</p>
+          <h2 id="step3Heading">③ 記録する（スプレッドシートに保存）</h2>
+          <p class="help">あとで一覧から探せるように、次の項目を保存します。ここを直すと、手で直す前の①の文も作り直されます。</p>
+
+          <div class="field" id="fAuthorField">
+            <label for="fAuthor">発信者</label>
+            <input type="text" id="fAuthor" aria-describedby="fAuthorHelp">
+            <p id="fAuthorHelp" class="help">記録に残ります。出典行やスレッドの前置きにも名前が入ります（空なら名前なしの文）。</p>
+            <div id="fAuthorPicks" class="pick-group" role="group" aria-label="発信者の候補"></div>
+          </div>
+
+          <div class="field">
+            <label for="fTitle">タイトル（必須。トークでは【】で囲まれます）</label>
+            <input type="text" id="fTitle" required aria-required="true">
+          </div>
+
+          <div class="field">
+            <label for="fSummary">概略（箇条書き）</label>
+            <textarea id="fSummary" rows="5"></textarea>
+          </div>
+
+          <fieldset class="field">
+            <legend>種別（必須）</legend>
+            <div id="fKindGroup" class="radio-group" role="radiogroup" aria-label="種別"></div>
+            <p class="help">「スケジュール」を選ぶと、トークに日時・場所・出演者などの行が入ります。</p>
+          </fieldset>
+
+          <div class="field">
+            <label for="fSource">入力元</label>
+            <select id="fSource"></select>
+          </div>
+
+          <div class="field">
+            <label for="fUrl">元の投稿・記事の URL</label>
+            <input type="url" id="fUrl" inputmode="url" autocomplete="off" aria-describedby="fUrlHelp">
+            <p id="fUrlHelp" class="help">どこから転載したかの URL です。追跡用の部分を取り除いた形に整えてあります。スレッドを使わないときはトークの最後に、X・Instagram・Threads ではスレッドの1通目に入ります。</p>
+          </div>
+
+          <fieldset class="field event-box" id="eventFields">
+            <legend>開催日時など（必ず原文と見比べてください）</legend>
+            <div class="field-row">
+              <div class="field">
+                <label for="fEventDate">開催日</label>
+                <input type="date" id="fEventDate" aria-describedby="fEventWeekdayHelp">
+                <p class="help" id="fEventWeekdayHelp">曜日: <output id="fEventWeekday" for="fEventDate">—</output></p>
+              </div>
+              <div class="field">
+                <label for="fStartTime">開始時刻</label>
+                <input type="time" id="fStartTime">
+              </div>
+              <div class="field">
+                <label for="fEndTime">終了時刻</label>
+                <input type="time" id="fEndTime">
+              </div>
+            </div>
+            <p id="weekdayWarning" class="inline-warning" hidden></p>
+            <div class="field">
+              <label for="fPlace">場所（例: 対面（高崎）＆オンライン）</label>
+              <input type="text" id="fPlace">
+            </div>
+            <div class="field">
+              <label for="fJoinUrl">参加 URL（配信・オンライン会議）</label>
+              <input type="url" id="fJoinUrl" inputmode="url" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="fPerformers">出演者</label>
+              <input type="text" id="fPerformers">
+            </div>
+            <div class="field">
+              <label for="fDeadline">申込締切</label>
+              <input type="date" id="fDeadline" aria-describedby="fDeadlineWeekdayHelp">
+              <p class="help" id="fDeadlineWeekdayHelp">曜日: <output id="fDeadlineWeekday" for="fDeadline">—</output></p>
+            </div>
+            <div class="field">
+              <label for="fApplyUrl">申込 URL（申込フォームなど）</label>
+              <input type="url" id="fApplyUrl" inputmode="url" autocomplete="off">
+            </div>
+          </fieldset>
 
           <div class="field">
             <label for="fCategory">カテゴリ（必須）</label>
@@ -310,8 +320,8 @@
       </section>
 
       <section aria-labelledby="authorManageHeading">
-        <h2 id="authorManageHeading" tabindex="-1">投稿者・発信者の候補</h2>
-        <p class="help">結果画面の「投稿者・発信者の名前」の下に、ボタンとして並びます。</p>
+        <h2 id="authorManageHeading" tabindex="-1">発信者の候補</h2>
+        <p class="help">結果画面の「発信者」の下に、ボタンとして並びます。</p>
         <ul id="authorManageList" class="manage-list"></ul>
         <div class="add-row">
           <label for="newAuthor">追加する名前</label>

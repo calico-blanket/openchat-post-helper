@@ -23,6 +23,7 @@
     summaryMode: false,   // スレッドに要約を使うか
     prefixEdited: false,  // 前置きを手で書き換えたか
     useThreadEdited: false, // 「スレッドにも投稿する」を手で切り替えたか
+    talkEdited: false,    // ①のトーク本体を手で直したか（直したら自動では作り直さない）
     image: null,          // { mimeType, data, previewUrl }
     sharedStartedAt: null,
     list: { items: [], offset: 0, hasMore: false, query: null, loaded: false }
@@ -308,7 +309,7 @@
     var source = $('inputSource').value || L.detectSource(url) || (state.image ? 'flyer' : 'other');
     openResult({
       id: '', kind: '', source: source, author: '', category: '', title: '', summary: '',
-      url: url, original: $('inputText').value, tags: [], memo: '',
+      url: url, original: $('inputText').value, tags: [], memo: '', talk: '',
       event: { date: '', startTime: '', endTime: '', place: '', performers: '', deadline: '' }
     }, null);
     announce('手で入力できます。タイトル・種別・カテゴリを入れてください');
@@ -330,6 +331,7 @@
       original: r.originalText || '',
       tags: tags.filter(function (t, i) { return tags.indexOf(t) === i; }),
       memo: '',
+      talk: '',
       event: r.event || {}
     };
   }
@@ -340,7 +342,8 @@
       id: item.id,
       kind: item.kind,
       source: item.source,
-      author: '',
+      author: item.author || '',
+      talk: item.talk || '',
       category: item.category,
       title: item.title,
       summary: item.summary,
@@ -350,7 +353,8 @@
       memo: item.memo,
       event: {
         date: ev.date, startTime: ev.startTime, endTime: ev.endTime,
-        place: item.place, performers: item.performers, deadline: item.deadline
+        place: item.place, performers: item.performers, deadline: item.deadline,
+        joinUrl: item.joinUrl || '', applyUrl: item.applyUrl || ''
       }
     };
   }
@@ -378,7 +382,12 @@
     $('fPlace').value = post.event.place || '';
     $('fPerformers').value = post.event.performers || '';
     $('fDeadline').value = post.event.deadline || '';
+    $('fJoinUrl').value = post.event.joinUrl || '';
+    $('fApplyUrl').value = post.event.applyUrl || '';
     $('fUrl').value = post.url;
+    // 保存済みのトーク本文があれば、それをそのまま使う（作り直さない）
+    state.talkEdited = !!post.talk;
+    $('fTalk').value = post.talk || '';
     $('fMemo').value = post.memo;
     $('fOriginal').value = post.original;
     $('fSummaryDraft').value = '';
@@ -394,16 +403,9 @@
 
     refreshOutputs();
 
-    // 編集欄はふだん閉じておく。直す必要が高いとき（手で作る・必須項目が空・日時の警告あり）だけ開く
-    var talkNeedsEdit = !analysis || !post.title || !post.kind || hasDateWarning(readPost());
-    $('talkEditDetails').open = talkNeedsEdit;
+    // スレッドの編集欄はふだん閉じておく。原文が無いときだけ開く
     $('threadEditDetails').open = !post.original;
     showView('resultView');
-  }
-
-  /** 日時まわりの警告（未確定・曜日の食い違い）があるか */
-  function hasDateWarning(post) {
-    return dateWarnings(post).length > 0;
   }
 
   /**
@@ -418,7 +420,7 @@
     // 日付を手で入れたあとは「入れていません」が事実と合わなくなるので、空のときだけ出す
     if (a && a.dateUncertain && !post.event.date) {
       items.push('AI は開催日時がまだ確定していないと判断したため、トークに日時を入れていません' +
-        (a.dateNote ? '（原文: ' + a.dateNote + '）' : '') + '。確定したら「トークの内容を直す」で入れてください');
+        (a.dateNote ? '（原文: ' + a.dateNote + '）' : '') + '。確定したら③の開催日時に入れてください');
     }
     if (post.kind === 'schedule' && post.event.date) {
       var uncertain = L.uncertainDateWarning(post.original);
@@ -430,7 +432,7 @@
   }
 
   /**
-   * 投稿者名の候補ボタン（「名前なし」＋設定画面の候補）を描く。
+   * 発信者の候補ボタン（「名前なし」＋設定画面の候補）を描く。
    * 押すと欄に入り、前置き・出典行が作り直される。今の欄の値と同じボタンは押された状態（aria-pressed）にする。
    */
   function renderAuthorPicks() {
@@ -448,7 +450,7 @@
           $('fAuthor').value = name;
           // 欄に手で入力したときと同じ処理（前置きの自動更新・プレビュー更新）を走らせる
           $('fAuthor').dispatchEvent(new Event('input', { bubbles: true }));
-          announce(name ? '投稿者名を「' + name + '」にしました' : '投稿者名を空にしました');
+          announce(name ? '発信者を「' + name + '」にしました' : '発信者を空にしました');
         }
       }));
     });
@@ -462,10 +464,8 @@
     });
   }
 
-  /** 入力元によっては使わない欄（投稿者名・日時）を隠す */
-  var AUTHOR_SOURCES = ['slack', 'x', 'instagram', 'threads', 'note', 'legislator'];
+  /** 種別によっては使わない欄（開催日時など）を隠す。発信者は記録に残すので常に出す */
   function updateFieldVisibility(post) {
-    $('fAuthorField').hidden = AUTHOR_SOURCES.indexOf(post.source) === -1;
     $('eventFields').hidden = post.kind !== 'schedule';
   }
 
@@ -521,6 +521,7 @@
       summary: $('fSummary').value.trim(),
       url: $('fUrl').value.trim(),
       original: $('fOriginal').value,
+      talk: $('fTalk').value,
       useThread: $('fUseThread').checked,
       tags: tags,
       memo: $('fMemo').value,
@@ -530,7 +531,9 @@
         endTime: $('fEndTime').value,
         place: $('fPlace').value.trim(),
         performers: $('fPerformers').value.trim(),
-        deadline: $('fDeadline').value
+        deadline: $('fDeadline').value,
+        joinUrl: $('fJoinUrl').value.trim(),
+        applyUrl: $('fApplyUrl').value.trim()
       }
     };
   }
@@ -559,7 +562,11 @@
 
     renderWarnings(post);
 
-    $('talkPreview').textContent = L.buildTalkBody(post, config(), todayIso());
+    // 手で直す前は、③の項目からトーク本体を作り直す。直したあとは上書きしない
+    if (!state.talkEdited) {
+      $('fTalk').value = L.buildTalkBody(post, config(), todayIso());
+    }
+    $('talkEditedNote').hidden = !state.talkEdited;
     $('copyTalkButton').textContent = 'トーク本体をコピー';
 
     if (state.summaryMode) {
@@ -587,6 +594,8 @@
       }
     }
     dateWarnings(post).forEach(function (w) { items.push(w); });
+    var meeting = L.meetingUrlWarning([post.event.joinUrl, post.event.applyUrl, post.url]);
+    if (meeting) { items.push(meeting); }
     var list = $('resultWarningList');
     list.textContent = '';
     items.forEach(function (w) { list.appendChild(el('li', { text: w })); });
@@ -654,10 +663,22 @@
   }
 
   function copyTalk() {
-    // 「本日」「明日」は押した時点の日付で作り直す
-    var text = L.buildTalkBody(readPost(), config(), todayIso());
-    $('talkPreview').textContent = text;
-    copyText(text, 'トーク本体', $('copyTalkButton'));
+    // 手で直していなければ、「本日」「明日」を押した時点の日付で作り直してからコピーする
+    if (!state.talkEdited) {
+      $('fTalk').value = L.buildTalkBody(readPost(), config(), todayIso());
+    }
+    copyText($('fTalk').value, 'トーク本体', $('copyTalkButton'));
+  }
+
+  /** ③の項目からトーク本体を作り直す（手で直した文は消えるので確認する） */
+  function regenerateTalk() {
+    if (state.talkEdited && !window.confirm('手で直したトーク本体の文は消えて、③の項目から作り直します。よろしいですか？')) {
+      return;
+    }
+    state.talkEdited = false;
+    refreshOutputs();
+    announce('③の項目からトーク本体を作り直しました');
+    $('fTalk').focus();
   }
 
   // ---- 要約 ----------------------------------------------------------
@@ -760,7 +781,11 @@
       place: post.event.place,
       deadline: post.event.deadline,
       performers: post.event.performers,
-      memo: post.memo
+      memo: post.memo,
+      author: post.author,
+      talk: post.talk,
+      joinUrl: post.event.joinUrl,
+      applyUrl: post.event.applyUrl
     };
   }
 
@@ -905,7 +930,7 @@
 
   // ---- 設定 ------------------------------------------------------------
 
-  // 設定画面で管理する一覧（カテゴリ・タグ・投稿者の候補）の定義
+  // 設定画面で管理する一覧（カテゴリ・タグ・発信者の候補）の定義
   var LIST_UI = {
     category: {
       label: 'カテゴリ', key: 'categories', add: 'addCategory', remove: 'removeCategory', reorder: 'reorderCategories',
@@ -918,7 +943,7 @@
       removeNote: '（保存済みの投稿はそのまま残ります）'
     },
     author: {
-      label: '投稿者・発信者の候補', key: 'authors', add: 'addAuthor', remove: 'removeAuthor', reorder: 'reorderAuthors',
+      label: '発信者の候補', key: 'authors', add: 'addAuthor', remove: 'removeAuthor', reorder: 'reorderAuthors',
       list: 'authorManageList', heading: 'authorManageHeading', input: 'newAuthor',
       removeNote: ''
     }
@@ -1059,6 +1084,12 @@
 
     // 結果画面: 入力が変わるたびにプレビューを作り直す
     $('postForm').addEventListener('input', function (event) {
+      // ①を手で直したら、以後は自動で作り直さない（スレッドなどには影響しないので描き直し不要）
+      if (event.target.id === 'fTalk') {
+        state.talkEdited = true;
+        $('talkEditedNote').hidden = false;
+        return;
+      }
       if (event.target.id === 'fUseThread') { state.useThreadEdited = true; }
       if ((event.target.id === 'fSource' || event.target.id === 'fUrl') && !state.useThreadEdited) {
         $('fUseThread').checked = L.defaultUseThread(config(), $('fSource').value, $('fUrl').value);
@@ -1074,6 +1105,7 @@
     $('fOriginal').addEventListener('input', refreshOutputs);
     $('fSummaryDraft').addEventListener('input', refreshOutputs);
     $('copyTalkButton').addEventListener('click', copyTalk);
+    $('regenTalkButton').addEventListener('click', regenerateTalk);
     $('summarizeButton').addEventListener('click', runSummarize);
     $('revertSummaryButton').addEventListener('click', revertSummary);
     $('saveButton').addEventListener('click', function () { savePost(false); });
