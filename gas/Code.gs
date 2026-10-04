@@ -177,7 +177,8 @@ function handleBootstrap_() {
     model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL,
     // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
     spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
-    archivePublic: getProperty_('ARCHIVE_PUBLIC').toLowerCase() === 'true'
+    archivePublic: getProperty_('ARCHIVE_PUBLIC').toLowerCase() === 'true',
+    usageThisMonth: summarizeUsageThisMonth_()
   };
 }
 
@@ -269,6 +270,8 @@ function handleAnalyze_(body) {
   }
 
   var responses = UrlFetchApp.fetchAll(requests);
+  // 使用量は、結果を読み解く前に記録する（読み解きに失敗しても、使った分は残す）
+  result.usage = recordUsage_('文章を整える', model, readUsage_(responses[0], useJev ? responses[1] : null));
   var gemini = parseGeminiAnalyzeResponse_(responses[0], categories, tags);
 
   result.title = gemini.title || result.title;
@@ -915,7 +918,8 @@ function handleSummarize_(body) {
     length
   );
   var response = UrlFetchApp.fetchAll([request])[0];
-  return { ok: true, summary: readGeminiText_(response).trim(), length: length };
+  var usage = recordUsage_('要約', getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, readUsage_(response, null));
+  return { ok: true, summary: readGeminiText_(response).trim(), length: length, usage: usage };
 }
 
 /** 要約用の Gemini リクエストを作る純粋関数 */
@@ -1397,6 +1401,94 @@ function handleSearch_(body) {
     items.push(item);
   }
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
+}
+
+// ---- 使用量と概算の金額 -----------------------------------------------
+
+var USAGE_SHEET_NAME = '利用量';
+var USAGE_HEADER = ['日時', '操作', 'モデル', 'Gemini入力トークン', 'Gemini出力トークン', 'Jev入力トークン', '概算（円）'];
+
+/**
+ * Gemini・Jev の応答から、使ったトークン数を読む純粋関数（読めなければ 0）。
+ * Gemini の出力は、本文（candidatesTokenCount）と内部の考える過程（thoughtsTokenCount）の合計。
+ */
+function readUsage_(geminiResponse, jevResponse) {
+  var usage = { geminiInput: 0, geminiOutput: 0, jevInput: 0 };
+  var num = function (v) { return typeof v === 'number' && v > 0 ? v : 0; };
+  try {
+    var meta = (JSON.parse(geminiResponse.getContentText()) || {}).usageMetadata || {};
+    usage.geminiInput = num(meta.promptTokenCount);
+    usage.geminiOutput = num(meta.candidatesTokenCount) + num(meta.thoughtsTokenCount);
+  } catch (e) { /* 読めなければ 0 のまま */ }
+  if (jevResponse) {
+    try {
+      usage.jevInput = num(((JSON.parse(jevResponse.getContentText()) || {}).usage || {}).input_tokens);
+    } catch (e2) { /* 読めなければ 0 のまま */ }
+  }
+  return usage;
+}
+
+/** トークン数から概算の金額（円）を計算する純粋関数。小数第2位まで */
+function estimateYen_(usage) {
+  var price = APP_CONFIG.pricing || {};
+  var usd = (usage.geminiInput * (price.geminiInputUsdPerMTok || 0) +
+    usage.geminiOutput * (price.geminiOutputUsdPerMTok || 0) +
+    usage.jevInput * (price.jevInputUsdPerMTok || 0)) / 1000000;
+  return Math.round(usd * (price.yenPerUsd || 0) * 100) / 100;
+}
+
+/**
+ * 使用量を「利用量」シートに1行記録し、画面に返す形（トークン数＋概算の円）にする。
+ * 記録に失敗しても、本来の処理（文章を整える・要約）は止めない。
+ */
+function recordUsage_(operation, model, usage) {
+  var yen = estimateYen_(usage);
+  // エラーなどでトークン数が読めなかったときは記録しない（0 円の行を増やさない）
+  if (!usage.geminiInput && !usage.geminiOutput && !usage.jevInput) {
+    return { geminiInput: 0, geminiOutput: 0, jevInput: 0, yen: 0 };
+  }
+  try {
+    var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = spreadsheet.getSheetByName(USAGE_SHEET_NAME) || spreadsheet.insertSheet(USAGE_SHEET_NAME);
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(USAGE_HEADER);
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([
+      sanitizeCellText_(Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss')),
+      sanitizeCellText_(operation),
+      sanitizeCellText_(model),
+      usage.geminiInput, usage.geminiOutput, usage.jevInput, yen
+    ]);
+  } catch (e) {
+    // 記録できなくても続ける
+  }
+  return { geminiInput: usage.geminiInput, geminiOutput: usage.geminiOutput, jevInput: usage.jevInput, yen: yen };
+}
+
+/**
+ * 今月（日本時間）の使用量を集計する。シートが無い・読めないときは 0 件として返す。
+ * @returns {{ month: string, count: number, analyzeCount: number, summarizeCount: number, yen: number }}
+ */
+function summarizeUsageThisMonth_() {
+  var month = Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM');
+  var summary = { month: month, count: 0, analyzeCount: 0, summarizeCount: 0, yen: 0 };
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(USAGE_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) { return summary; }
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, USAGE_HEADER.length).getValues();
+    rows.forEach(function (row) {
+      var at = row[0] instanceof Date ? Utilities.formatDate(row[0], TIME_ZONE, 'yyyy-MM') : String(row[0]).slice(0, 7);
+      if (at !== month) { return; }
+      summary.count++;
+      if (String(row[1]) === '要約') { summary.summarizeCount++; } else { summary.analyzeCount++; }
+      summary.yen += Number(row[6]) || 0;
+    });
+    summary.yen = Math.round(summary.yen * 100) / 100;
+  } catch (e) {
+    // 集計できなくても続ける
+  }
+  return summary;
 }
 
 // ---- 公開の一覧（合言葉なしで読める、読み取り専用） --------------------------

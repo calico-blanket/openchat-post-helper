@@ -120,6 +120,17 @@ var APP_CONFIG = {
   // メモ欄のコメントをスレッドに添えるときの書式
   commentLine: '💬 {memo}',
 
+  // 使用量の概算に使う料金表（2026年10月時点の公式料金。料金改定・為替・モデルの変更に合わせて書き換える）
+  // 無料枠で使っている場合、実際の請求は 0 円（ここでの金額は「有料枠だったら」の概算）
+  pricing: {
+    yenPerUsd: 150,
+    // Gemini（gemini-3.1-flash-lite）の 100万トークンあたりのドル。出力には内部の考える過程の分も含む
+    geminiInputUsdPerMTok: 0.25,
+    geminiOutputUsdPerMTok: 1.50,
+    // Jev の 100万トークンあたりのドル（出力は無料）
+    jevInputUsdPerMTok: 0.042
+  },
+
   // 文字数の上限など（実機確認の結果で調整する。docs/verification-checklist.md 参照）
   limits: {
     // Gemini に渡す本文の最大文字数（先頭から切る）
