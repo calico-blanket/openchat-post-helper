@@ -156,6 +156,7 @@ function createGasContext() {
   const context = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
+        getUrl: () => 'https://docs.google.com/spreadsheets/d/dev-sheet-id/edit',
         getSheetByName: (name) => sheets[name] || null,
         insertSheet: (name) => { sheets[name] = createSheetStub(); return sheets[name]; }
       })

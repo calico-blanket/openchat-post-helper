@@ -13,7 +13,7 @@ GET は何も返しません（合言葉を URL に載せてログに残さな�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
 | `summarize` | `text` `length: "half" \| "3lines"` | `summary` |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |

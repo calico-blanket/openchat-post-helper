@@ -165,6 +165,10 @@
     var info = '接続できました。モデル: ' + boot.model + '／Jev: ' + (boot.jevConfigured ? '使う' : '使わない（Gemini が分類）');
     if (!boot.geminiConfigured) { info += '／Gemini の API キーが未設定です'; }
     $('serverInfo').textContent = info;
+    var sheetUrl = String(boot.spreadsheetUrl || '');
+    var isSheetUrl = /^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl);
+    $('sheetLink').href = isSheetUrl ? sheetUrl : '#';
+    $('sheetLinkArea').hidden = !isSheetUrl;
   }
 
   /** キャッシュがあれば先に使い、裏で最新化する */

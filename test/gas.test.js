@@ -107,6 +107,7 @@ function load({ props, fetch } = {}) {
   const context = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
+        getUrl: () => 'https://docs.google.com/spreadsheets/d/test-sheet-id/edit',
         getSheetByName: (name) => sheets[name] || null,
         insertSheet: (name) => { sheets[name] = createSheetStub(); return sheets[name]; }
       })
@@ -1062,4 +1063,14 @@ test('update: 新しいシートの並びなら、編集の書き込みは3回�
   assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, title: '更新' })).ok, true);
   assert.ok(writes >= 1 && writes <= 3, '書き込み回数: ' + writes);
   assert.strictEqual(cell(env, 1, 'タイトル'), '更新');
+});
+
+test('bootstrap: 保存先スプレッドシートの URL を返し、合言葉が違えば返さない', () => {
+  const env = load();
+  assert.strictEqual(post(env, { action: 'bootstrap' }).spreadsheetUrl, 'https://docs.google.com/spreadsheets/d/test-sheet-id/edit');
+  const wrong = post(env, { action: 'bootstrap' }, 'wrong');
+  assert.strictEqual(wrong.ok, false);
+  assert.strictEqual(wrong.spreadsheetUrl, undefined);
+  const noToken = load({ props: { SHARED_TOKEN: undefined } });
+  assert.strictEqual(post(noToken, { action: 'bootstrap' }, '').spreadsheetUrl, undefined);
 });

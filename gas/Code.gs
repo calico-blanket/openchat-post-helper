@@ -164,7 +164,9 @@ function handleBootstrap_() {
     authors: getAuthors_(),
     geminiConfigured: !!getProperty_('GEMINI_API_KEY'),
     jevConfigured: !!getProperty_('TYPESAFE_API_KEY'),
-    model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL
+    model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL,
+    // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
+    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl()
   };
 }
 
