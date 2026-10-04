@@ -692,6 +692,26 @@
     return { rows: rows, total: sorted.length, shown: shownItems.length, hasMore: sorted.length > shownItems.length };
   }
 
+  // ---- 使用量の概算の表示 -------------------------------------------
+
+  /** 概算の金額を「約 0.4 円」の形にする（1円以上は整数、1円未満は小数第1位まで。0.05円未満は「約 0.1 円未満」） */
+  function formatYen(yen) {
+    var value = Number(yen) || 0;
+    if (value <= 0) { return '0 円'; }
+    if (value < 0.05) { return '約 0.1 円未満'; }
+    if (value < 1) { return '約 ' + value.toFixed(1) + ' 円'; }
+    return '約 ' + Math.round(value).toLocaleString('ja-JP') + ' 円';
+  }
+
+  /** 今月の使用量の集計を、設定画面に出す1文にする */
+  function usageSummaryText(summary) {
+    if (!summary || !summary.month) { return ''; }
+    var m = String(summary.month).match(/^(\d{4})-(\d{2})$/);
+    var label = m ? m[1] + '年' + Number(m[2]) + '月' : summary.month;
+    if (!summary.count) { return label + 'は、まだ AI を使っていません。'; }
+    return label + 'の概算: ' + formatYen(summary.yen) + '（文章を整える ' + summary.analyzeCount + ' 回・要約 ' + summary.summarizeCount + ' 回）';
+  }
+
   // ---- その他 ---------------------------------------------------
 
   /** 配列の index 番目を delta(+1/-1) 方向の隣と入れ替えた新しい配列（範囲外は何もしない） */
@@ -734,6 +754,8 @@
     summaryWarnings: summaryWarnings,
     uncertainDateWarning: uncertainDateWarning,
     meetingUrlWarning: meetingUrlWarning,
+    formatYen: formatYen,
+    usageSummaryText: usageSummaryText,
     archiveEventLabel: archiveEventLabel,
     buildArchiveView: buildArchiveView,
     moveArrayItem: moveArrayItem

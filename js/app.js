@@ -169,6 +169,7 @@
     var isSheetUrl = /^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl);
     $('sheetLink').href = isSheetUrl ? sheetUrl : '#';
     $('sheetLinkArea').hidden = !isSheetUrl;
+    $('usageSummary').textContent = L.usageSummaryText(boot.usageThisMonth) || '今月の概算は、まだありません。';
     $('archiveState').textContent = boot.archivePublic
       ? '公開中です。合言葉なしで誰でも読める記録の一覧です（メモと ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
       : 'いまは公開していません。公開するには、GAS のスクリプトプロパティ ARCHIVE_PUBLIC を true にし、archive-config.js に GAS の URL を入れます（README 参照）。';
@@ -299,7 +300,8 @@
     var base = fromShare ? 0 : startedAt;
     var seconds = ((performance.now() - base) / 1000).toFixed(1);
     var label = fromShare ? '共有から結果表示まで ' : '処理時間 ';
-    $('elapsedNote').textContent = label + seconds + ' 秒';
+    var usage = state.analysis && state.analysis.usage;
+    $('elapsedNote').textContent = label + seconds + ' 秒' + (usage && usage.yen ? '／今回の AI の概算 ' + L.formatYen(usage.yen) : '');
     $('elapsedNote').hidden = false;
     announce('文章を整えました（' + seconds + ' 秒）。内容を確認してください');
     if (fromShare) {
@@ -712,7 +714,8 @@
       state.prefixEdited = false;
       refreshOutputs();
       var count = $('summaryWarningList').children.length;
-      announce(count ? '要約しました。警告が ' + count + ' 件あります。確認してください' : '要約しました。下書きを確認してください');
+      var cost = json.usage && json.usage.yen ? '（AI の概算 ' + L.formatYen(json.usage.yen) + '）' : '';
+      announce((count ? '要約しました。警告が ' + count + ' 件あります。確認してください' : '要約しました。下書きを確認してください') + cost);
       $('fSummaryDraft').focus();
     }).catch(function (err) {
       setBusy(button, false);

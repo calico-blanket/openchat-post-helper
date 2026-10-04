@@ -506,3 +506,15 @@ test('buildArchiveView: 表示件数の上限と「さらに表示」の判定',
   assert.deepStrictEqual(titles(v), ['国会対策の1年', '勉強会', 'ポスティング']);
   assert.strictEqual(L.buildArchiveView([], {}).total, 0);
 });
+
+test('formatYen・usageSummaryText: 概算の金額と今月の集計の表示', () => {
+  assert.strictEqual(L.formatYen(0), '0 円');
+  assert.strictEqual(L.formatYen(0.01), '約 0.1 円未満');
+  assert.strictEqual(L.formatYen(0.38), '約 0.4 円');
+  assert.strictEqual(L.formatYen(918.4), '約 918 円');
+  assert.strictEqual(L.formatYen(12345.6), '約 12,346 円');
+  assert.strictEqual(L.usageSummaryText({ month: '2026-10', count: 0, analyzeCount: 0, summarizeCount: 0, yen: 0 }), '2026年10月は、まだ AI を使っていません。');
+  assert.strictEqual(L.usageSummaryText({ month: '2026-10', count: 3, analyzeCount: 2, summarizeCount: 1, yen: 0.96 }),
+    '2026年10月の概算: 約 1.0 円（文章を整える 2 回・要約 1 回）');
+  assert.strictEqual(L.usageSummaryText(null), '');
+});

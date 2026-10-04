@@ -80,14 +80,15 @@ function fakeGeminiAnalyze(payload) {
   if (schema.kind) { result.kind = isEvent ? 'schedule' : 'article'; }
   if (schema.category) { result.category = isEvent ? 'イベント' : 'お知らせ'; }
   if (schema.tags) { result.tags = []; }
-  return fakeResponse(200, { candidates: [{ content: { parts: [{ text: JSON.stringify(result) }] } }] });
+  // 使用量の概算を確かめられるよう、本物と同じ形でトークン数も返す（本文の文字数を目安にする）
+  return fakeResponse(200, { candidates: [{ content: { parts: [{ text: JSON.stringify(result) }] } }], usageMetadata: { promptTokenCount: 1500 + text.length, candidatesTokenCount: 400, thoughtsTokenCount: 300 } });
 }
 
 /** 偽の Gemini（summarize）: 原文の前半を返す（数字が消えて警告が出ることもある） */
 function fakeGeminiSummary(payload) {
   const text = payload.contents[0].parts[0].text;
   const summary = text.slice(0, Math.max(20, Math.floor(text.length / 2)));
-  return fakeResponse(200, { candidates: [{ content: { parts: [{ text: summary }] } }] });
+  return fakeResponse(200, { candidates: [{ content: { parts: [{ text: summary }] } }], usageMetadata: { promptTokenCount: 300 + text.length, candidatesTokenCount: 500 } });
 }
 
 function fakeFetch(url, params) {

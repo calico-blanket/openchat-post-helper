@@ -19,9 +19,9 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（公開の一覧が有効か）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（公開の一覧が有効か）、`usageThisMonth`（今月の使用量の概算 `{ month, count, analyzeCount, summarizeCount, yen }`）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
-| `summarize` | `text` `length: "half" \| "3lines"` | `summary` |
+| `summarize` | `text` `length: "half" \| "3lines"` | `summary`、`usage`（今回の使用量の概算） |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
 | `update` | `id` ＋ 投稿データ ＋ `force?` | `id`（登録日時と ID は変えない） |
 | `delete` | `id` | `id` |
@@ -52,6 +52,7 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 | `duplicate` | 同じ URL の保存済み投稿 |
 | `warnings` | 取得の失敗、X の途中切れ、Jev の失敗など |
 | `analyzed` | Gemini を呼んだか（本文も画像もなければ呼ばない） |
+| `usage` | 今回の使用量の概算 `{ geminiInput, geminiOutput, jevInput, yen }`（Gemini を呼んだときだけ） |
 
 ### 投稿データ（save / update）
 
@@ -77,4 +78,5 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 - 見出しが見つからない項目は、右端に見出しを足します。同じ見出しが複数あれば左の列を使います。
 - 見出しの文字を変えると別の列とみなすため、見出しは変えないでください。
 
+- 使用量は、別のシート「利用量」に1回1行で記録します（日時・操作・モデル・Gemini入力トークン・Gemini出力トークン・Jev入力トークン・概算（円））。トークン数が読めなかった失敗は記録しません。公開の一覧には出ません。
 - 空でない値は、先頭にアポストロフィを付けて「文字列」として書き込みます。`=` などで始まる値が数式として動くこと（数式インジェクション）と、日付風の値が自動変換されることを防ぐためです。

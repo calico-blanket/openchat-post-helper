@@ -136,6 +136,7 @@ function load({ props, fetch } = {}) {
       // 保存のたびに1秒進む固定の時計（日時の文字列が決定的になるように）
       formatDate: (date, tz, pattern) => {
         if (pattern === 'yyyy-MM-dd') { return '2026-10-02'; }
+        if (pattern === 'yyyy-MM') { return '2026-10'; }
         clock++;
         return '2026-10-02 10:00:' + String(clock).padStart(2, '0');
       }
@@ -152,7 +153,7 @@ function load({ props, fetch } = {}) {
   vm.createContext(context);
   vm.runInContext(CONFIG_SOURCE, context);
   vm.runInContext(CODE_SOURCE, context);
-  return { context, calls, props: scriptProps, sheet: () => sheets['投稿一覧'] };
+  return { context, calls, props: scriptProps, sheet: () => sheets['投稿一覧'], usageSheet: () => sheets['利用量'] };
 }
 
 /** doPost を呼んで JSON を返す（合言葉は既定で正しいものを付ける） */
@@ -1160,4 +1161,104 @@ test('analyze: X の長文（「…」＋画像リンクで終わる）では、
   });
   const r = post(env, { action: 'analyze', url: 'https://x.com/takahiroanno/status/2105989521020166328' });
   assert.ok(r.warnings.some((w) => /長い投稿は途中までしか取得できません/.test(w) && /さらに表示/.test(w)), JSON.stringify(r.warnings));
+});
+
+// ---- 使用量と概算の金額 -------------------------------------------------
+
+/** トークン数（usageMetadata）付きの Gemini の応答 */
+function geminiResWithUsage(obj, usageMetadata) {
+  return res(200, {
+    candidates: [{ content: { parts: [{ text: typeof obj === 'string' ? obj : JSON.stringify(obj) }] } }],
+    usageMetadata
+  });
+}
+
+test('estimateYen_: 料金表（Config.gs の pricing）でトークン数から円を計算する', () => {
+  const { context } = load();
+  // Gemini 入力 2,500・出力 1,000 → (2500×0.25 + 1000×1.5)/1e6 ドル × 150 = 0.32 円
+  assert.strictEqual(context.estimateYen_({ geminiInput: 2500, geminiOutput: 1000, jevInput: 0 }), 0.32);
+  // Jev 入力 1,000,000 → 0.042 ドル × 150 = 6.3 円
+  assert.strictEqual(context.estimateYen_({ geminiInput: 0, geminiOutput: 0, jevInput: 1000000 }), 6.3);
+  assert.strictEqual(context.estimateYen_({ geminiInput: 0, geminiOutput: 0, jevInput: 0 }), 0);
+});
+
+test('readUsage_: Gemini の出力は本文と考える過程の合計、Jev は入力だけを読む（読めなければ 0）', () => {
+  const { context } = load();
+  const u = context.readUsage_(
+    geminiResWithUsage('{}', { promptTokenCount: 2000, candidatesTokenCount: 300, thoughtsTokenCount: 500 }),
+    res(200, { answers: {}, usage: { input_tokens: 590, output_tokens: 97 } })
+  );
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(u)), { geminiInput: 2000, geminiOutput: 800, jevInput: 590 });
+  const broken = context.readUsage_(res(500, 'error'), res(200, '{壊れた'));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(broken)), { geminiInput: 0, geminiOutput: 0, jevInput: 0 });
+});
+
+test('analyze: 使用量を「利用量」シートに記録し、今回の概算を返す（Jev の分も含む）', () => {
+  const env = load({
+    props: { TYPESAFE_API_KEY: 'jev-key' },
+    fetch: (url) => (url.includes('typesafe')
+      ? res(200, { answers: { kind: { type: 'choice', choice: 'c0' } }, usage: { input_tokens: 10000 } })
+      : geminiResWithUsage(geminiAnalyze(), { promptTokenCount: 2500, candidatesTokenCount: 600, thoughtsTokenCount: 400 }))
+  });
+  const r = post(env, { action: 'analyze', text: '本文' });
+  assert.strictEqual(r.ok, true, r.error);
+  // (2500×0.25 + 1000×1.5 + 10000×0.042)/1e6 × 150 = 0.38175 → 0.38
+  assert.strictEqual(r.usage.yen, 0.38);
+  const sheet = env.usageSheet();
+  assert.deepStrictEqual(Array.from(sheet.values[0]), ['日時', '操作', 'モデル', 'Gemini入力トークン', 'Gemini出力トークン', 'Jev入力トークン', '概算（円）']);
+  assert.deepStrictEqual(Array.from(sheet.values[1]).slice(1), ['文章を整える', 'gemini-3.1-flash-lite', 2500, 1000, 10000, 0.38]);
+});
+
+test('analyze: 結果の読み解きに失敗しても、使った分は記録する。トークン数が読めない失敗は記録しない', () => {
+  const env = load({ fetch: () => geminiResWithUsage('{壊れた', { promptTokenCount: 100, candidatesTokenCount: 10 }) });
+  assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).ok, false);
+  assert.strictEqual(env.usageSheet().values.length, 2, '見出し＋1行');
+  const env2 = load({ fetch: () => res(429, 'quota') });
+  assert.strictEqual(post(env2, { action: 'analyze', text: '本文' }).ok, false);
+  assert.strictEqual(env2.usageSheet(), undefined, '0 円の行は作らない');
+});
+
+test('summarize: 使用量を「要約」として記録し、概算を返す', () => {
+  const env = load({ fetch: () => geminiResWithUsage('要約', { promptTokenCount: 13000, candidatesTokenCount: 1000 }) });
+  const r = post(env, { action: 'summarize', text: '原文', length: 'half' });
+  assert.strictEqual(r.usage.yen, 0.71);
+  assert.strictEqual(env.usageSheet().values[1][1], '要約');
+});
+
+test('bootstrap: 今月の概算を集計して返す（先月の行は数えない）', () => {
+  const env = load({ fetch: () => geminiResWithUsage(geminiAnalyze(), { promptTokenCount: 2500, candidatesTokenCount: 1000 }) });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(post(env, { action: 'bootstrap' }).usageThisMonth)),
+    { month: '2026-10', count: 0, analyzeCount: 0, summarizeCount: 0, yen: 0 });
+  post(env, { action: 'analyze', text: '本文' });
+  post(env, { action: 'analyze', text: '本文' });
+  post(env, { action: 'summarize', text: '原文', length: 'half' });
+  env.usageSheet().values.push(['2026-09-30 23:59:00', '文章を整える', 'm', 1, 1, 0, 100]);
+  const u = post(env, { action: 'bootstrap' }).usageThisMonth;
+  assert.strictEqual(u.month, '2026-10');
+  assert.strictEqual(u.count, 3);
+  assert.strictEqual(u.analyzeCount, 2);
+  assert.strictEqual(u.summarizeCount, 1);
+  assert.strictEqual(u.yen, 0.96);
+});
+
+test('使用量の記録に失敗しても、文章を整える処理は止めない', () => {
+  const env = load({ fetch: () => geminiResWithUsage(geminiAnalyze(), { promptTokenCount: 100, candidatesTokenCount: 10 }) });
+  const original = env.context.SpreadsheetApp.getActiveSpreadsheet;
+  env.context.SpreadsheetApp.getActiveSpreadsheet = () => {
+    const ss = original();
+    return Object.assign({}, ss, {
+      getSheetByName: (name) => { if (name === '利用量') { throw new Error('書き込めない'); } return ss.getSheetByName(name); }
+    });
+  };
+  const r = post(env, { action: 'analyze', text: '本文' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.ok(r.usage.yen >= 0);
+});
+
+test('公開の一覧に使用量は出ない', () => {
+  const env = load({ props: { ARCHIVE_PUBLIC: 'true' }, fetch: () => geminiResWithUsage(geminiAnalyze(), { promptTokenCount: 100 }) });
+  post(env, { action: 'analyze', text: '本文' });
+  post(env, validPost());
+  const text = env.context.doGet({ parameter: { action: 'archive' } }).getContent();
+  assert.ok(!/トークン|概算|usage/.test(text));
 });
