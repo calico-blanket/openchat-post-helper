@@ -274,7 +274,7 @@ function handleAnalyze_(body) {
     }, categories, tags));
   }
 
-  var responses = UrlFetchApp.fetchAll(requests);
+  var responses = retryGeminiIfBusy_(UrlFetchApp.fetchAll(requests), requests, 0);
   // 使用量は、結果を読み解く前に記録する（読み解きに失敗しても、使った分は残す）
   result.usage = recordUsage_('文章を整える', model, readUsage_(responses[0], useJev ? responses[1] : null));
   var gemini = parseGeminiAnalyzeResponse_(responses[0], categories, tags);
@@ -748,10 +748,35 @@ function buildGeminiAnalyzeRequest_(options) {
   };
 }
 
+/** Gemini が一時的に混み合っているときの HTTP 番号（自動で1回だけやり直す） */
+var GEMINI_BUSY_CODES = [500, 503, 504];
+/** やり直す前に待つ時間（ミリ秒） */
+var GEMINI_RETRY_WAIT_MS = 3000;
+
+/**
+ * fetchAll の結果のうち、Gemini の応答（index 番目）が混み合いのエラーなら、
+ * 少し待って1回だけ送り直し、結果を差し替える。
+ */
+function retryGeminiIfBusy_(responses, requests, index) {
+  if (GEMINI_BUSY_CODES.indexOf(responses[index].getResponseCode()) === -1) { return responses; }
+  Utilities.sleep(GEMINI_RETRY_WAIT_MS);
+  var request = requests[index];
+  var params = {};
+  Object.keys(request).forEach(function (key) { if (key !== 'url') { params[key] = request[key]; } });
+  responses[index] = UrlFetchApp.fetch(request.url, params);
+  return responses;
+}
+
 /** Gemini の応答から本文テキスト（思考パートは除く）を取り出す。失敗時は日本語の Error */
 function readGeminiText_(response) {
   var code = response.getResponseCode();
   var raw = response.getContentText();
+  if (GEMINI_BUSY_CODES.indexOf(code) !== -1) {
+    throw new Error('AI（Gemini）が混み合っていて、やり直しても応答がありませんでした。少し待ってから、もう一度押してください（HTTP ' + code + '）');
+  }
+  if (code === 429) {
+    throw new Error('AI（Gemini）の利用回数が上限に達しました。しばらく待ってから、もう一度押してください（HTTP 429）');
+  }
   if (code !== 200) {
     throw new Error('Gemini API エラー（HTTP ' + code + '）: ' + String(raw).slice(0, 300));
   }
@@ -948,7 +973,7 @@ function handleSummarize_(body) {
     truncateText_(text, APP_CONFIG.limits.summaryInputMaxChars),
     length
   );
-  var response = UrlFetchApp.fetchAll([request])[0];
+  var response = retryGeminiIfBusy_(UrlFetchApp.fetchAll([request]), [request], 0)[0];
   var usage = recordUsage_('要約', getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, readUsage_(response, null));
   return { ok: true, summary: readGeminiText_(response).trim(), length: length, usage: usage };
 }

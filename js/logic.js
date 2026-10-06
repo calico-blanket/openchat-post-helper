@@ -376,6 +376,66 @@
     return /^https?:\/\/[^\s/?#]+\S*$/i.test(String(text || ''));
   }
 
+  // Slack からコピーしたときに文字として残る絵文字の名前（:sparkles: や :ピカピカ: など）
+  //   名前は数字で始まらず、句読点・かっこ・空白を含まない60文字以内
+  //   （「21:20よりスタート…致します:mega:」の時刻のコロンから文を巻き込まない）
+  var EMOJI_NAME_PATTERN = /:(?![0-9])([^\s:\/：、。，．,！？!?「」『』（）()【】]{1,60}):/g;
+  // 名前には英字かかな・漢字を必ず含む（:+1: :-1: は例外として絵文字とみなす）
+  var EMOJI_NAME_LETTER = /[A-Za-z\u3040-\u30ff\u3400-\u9fff]|^[+-]1$/;
+  // この文字で終わる行には「。」を足さない
+  var LINE_END_PUNCTUATION = /[。．.！!？?、，,」』）)】〕］\]〉》>＞…‥♪〜~：:]$/;
+
+  /** 1行から絵文字の名前を取り除く。{ line, count, removedAtEnd } を返す */
+  function stripEmojiNamesInLine(line) {
+    var MARK = '\u0000';
+    var out = '';
+    var last = 0;
+    var count = 0;
+    var m;
+    EMOJI_NAME_PATTERN.lastIndex = 0;
+    while ((m = EMOJI_NAME_PATTERN.exec(line)) !== null) {
+      if (!EMOJI_NAME_LETTER.test(m[1])) {
+        // 名前でなければ、閉じのコロンを次の名前の始まりとして使えるよう1文字だけ進める
+        EMOJI_NAME_PATTERN.lastIndex = m.index + 1;
+        continue;
+      }
+      out += line.slice(last, m.index) + MARK;
+      last = EMOJI_NAME_PATTERN.lastIndex;
+      count++;
+    }
+    out += line.slice(last);
+    var removedAtEnd = new RegExp(MARK + '[\\s' + MARK + ']*$').test(out);
+    return { line: out.split(MARK).join(''), count: count, removedAtEnd: removedAtEnd };
+  }
+
+  /**
+   * Slack の絵文字の名前（:○○:）を取り除く純粋関数。
+   *   - 行の最後にあった名前を取り除いたとき、その行が句読点や閉じかっこで終わっていなければ「。」を付ける
+   *   - 行の途中にあった名前は取り除くだけ。絵文字だけの行は空の行として残す
+   *   - Slack のコピーで最後に付く「（編集済み）」も取り除く
+   * { text, count } を返す（count は取り除いた絵文字の名前の数）。
+   */
+  function stripEmojiNames(text) {
+    var source = String(text || '').replace(/[ \t\u3000]*[（(](?:編集済み|edited)[）)][ \t\u3000]*(\n*)$/, '$1');
+    var total = 0;
+    var lines = source.split('\n').map(function (line) {
+      var r = stripEmojiNamesInLine(line);
+      total += r.count;
+      if (!r.removedAtEnd) { return r.line; }
+      var trimmed = r.line.replace(/[ \t\u3000]+$/, '');
+      if (!trimmed.trim() || LINE_END_PUNCTUATION.test(trimmed)) { return trimmed; }
+      return trimmed + '。';
+    });
+    return { text: lines.join('\n'), count: total };
+  }
+
+  /** 絵文字の名前（:○○:）がいくつあるか */
+  function countEmojiNames(text) {
+    return String(text || '').split('\n').reduce(function (sum, line) {
+      return sum + stripEmojiNamesInLine(line).count;
+    }, 0);
+  }
+
   /** サロゲートペア（絵文字など）の途中で切らないよう、切る位置を1つ前へずらす */
   function safeCut(text, index) {
     if (index > 0 && index < text.length) {
@@ -788,6 +848,8 @@
     buildArchiveView: buildArchiveView,
     moveArrayItem: moveArrayItem,
     normalizeUrl: normalizeUrl,
-    isValidUrl: isValidUrl
+    isValidUrl: isValidUrl,
+    stripEmojiNames: stripEmojiNames,
+    countEmojiNames: countEmojiNames
   };
 }));

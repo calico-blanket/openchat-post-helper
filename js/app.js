@@ -24,6 +24,7 @@
     prefixEdited: false,  // 前置きを手で書き換えたか
     useThreadEdited: false, // 「スレッドにも投稿する」を手で切り替えたか
     talkEdited: false,    // ①のトーク本体を手で直したか（直したら自動では作り直さない）
+    beforeStripEmoji: null, // 絵文字の名前を取り除く前の原文（「取り除く前に戻す」用）
     image: null,          // { mimeType, data, previewUrl }
     sharedStartedAt: null,
     list: { items: [], offset: 0, hasMore: false, query: null, loaded: false }
@@ -383,6 +384,7 @@
     state.analysis = analysis;
     state.summaryMode = false;
     state.prefixEdited = false;
+    state.beforeStripEmoji = null;
     if (!analysis) { $('elapsedNote').hidden = true; }
 
     renderKindRadios(post.kind);
@@ -603,7 +605,39 @@
       list.textContent = '';
       warnings.forEach(function (w) { list.appendChild(el('li', { text: w })); });
     }
+    updateEmojiNameBox(post.original);
     renderThreadMessages(post);
+  }
+
+  /** 原文に Slack の絵文字の名前（:○○:）があれば、取り除くボタンを出す */
+  function updateEmojiNameBox(original) {
+    var count = L.countEmojiNames(original);
+    var canUndo = state.beforeStripEmoji !== null;
+    $('emojiNameBox').hidden = count === 0 && !canUndo;
+    $('stripEmojiButton').hidden = count === 0;
+    $('undoStripEmojiButton').hidden = !canUndo;
+    $('emojiNameNote').textContent = count > 0
+      ? '原文に、Slack の絵文字の名前（:○○: の形）が ' + count + ' 個あります。取り除くと、行の最後だった所には「。」を付けます（句読点や閉じかっこがある行には付けません）。'
+      : '絵文字の名前を取り除きました。スレッドの文を確かめてください。';
+  }
+
+  function stripEmojiNames() {
+    var before = $('fOriginal').value;
+    var result = L.stripEmojiNames(before);
+    state.beforeStripEmoji = before;
+    $('fOriginal').value = result.text;
+    refreshOutputs();
+    announce('絵文字の名前を ' + result.count + ' 個取り除きました');
+    $('undoStripEmojiButton').focus();
+  }
+
+  function undoStripEmojiNames() {
+    if (state.beforeStripEmoji === null) { return; }
+    $('fOriginal').value = state.beforeStripEmoji;
+    state.beforeStripEmoji = null;
+    refreshOutputs();
+    announce('取り除く前の原文に戻しました');
+    $('stripEmojiButton').focus();
   }
 
   function renderWarnings(post) {
@@ -1156,7 +1190,13 @@
     $('postForm').addEventListener('change', refreshOutputs);
     $('postForm').addEventListener('submit', function (e) { e.preventDefault(); });
     $('fPrefix').addEventListener('input', function () { state.prefixEdited = true; refreshOutputs(); });
-    $('fOriginal').addEventListener('input', refreshOutputs);
+    $('fOriginal').addEventListener('input', function () {
+      // 手で直したあとは、「取り除く前に戻す」で直した分を消さないよう、戻す先を捨てる
+      state.beforeStripEmoji = null;
+      refreshOutputs();
+    });
+    $('stripEmojiButton').addEventListener('click', stripEmojiNames);
+    $('undoStripEmojiButton').addEventListener('click', undoStripEmojiNames);
     $('fSummaryDraft').addEventListener('input', refreshOutputs);
     $('copyTalkButton').addEventListener('click', copyTalk);
     $('regenTalkButton').addEventListener('click', regenerateTalk);

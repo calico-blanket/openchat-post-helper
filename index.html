@@ -116,6 +116,13 @@
             </div>
             <p class="help" id="threadModeHelp">前置きの文（「転載です」「抜粋です」）が変わります。抜粋を選んでも、アプリは文を削りません。不要な行は、下の「スレッドの内容を直す」の原文から消してください。</p>
           </fieldset>
+          <div id="emojiNameBox" class="field" hidden>
+            <p class="help" id="emojiNameNote"></p>
+            <div class="actions">
+              <button type="button" id="stripEmojiButton" class="button secondary" aria-describedby="emojiNameNote">絵文字の名前を取り除く</button>
+              <button type="button" id="undoStripEmojiButton" class="button secondary" hidden>取り除く前に戻す</button>
+            </div>
+          </div>
           <p class="help">①で貼った投稿のスレッドに、上から順に1通ずつコピーして貼ります。原文は AI を通さず、そのまま使います。</p>
           <ol id="threadMessages" class="message-list"></ol>
 

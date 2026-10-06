@@ -555,3 +555,61 @@ test('formatYen・usageSummaryText: 概算の金額と今月の集計の表示',
     '2026年10月の概算: 約 1.0 円（文章を整える 2 回・要約 1 回）');
   assert.strictEqual(L.usageSummaryText(null), '');
 });
+
+// ---- Slack の絵文字の名前（:○○:）を取り除く --------------------------
+
+test('stripEmojiNames: 行の最後の名前を取り除いたら「。」を付け、途中のものは取り除くだけ', () => {
+  const r = L.stripEmojiNames([
+    '【今夜は深掘りナイトです:sparkles: 】',
+    '交流のためのインタビュー企画です:hand_with_index_finger_and_thumb_crossed:',
+    '',
+    ' 日時：2026年10月6日(火)21:20~22:00',
+    ' ゲスト： @そんちょー さんです:relaxed::clap:',
+    '21:20よりスタート致しますので、よろしくお願い致します:mega:',
+    '※アーカイブも後日共有致します:+1: （編集済み）'
+  ].join('\n'));
+  assert.strictEqual(r.text, [
+    '【今夜は深掘りナイトです 】',
+    '交流のためのインタビュー企画です。',
+    '',
+    ' 日時：2026年10月6日(火)21:20~22:00',
+    ' ゲスト： @そんちょー さんです。',
+    '21:20よりスタート致しますので、よろしくお願い致します。',
+    '※アーカイブも後日共有致します。'
+  ].join('\n'));
+  assert.strictEqual(r.count, 6);
+});
+
+test('stripEmojiNames: スマホの日本語の名前も取り除き、句読点・閉じかっこで終わる行には「。」を付けない', () => {
+  assert.strictEqual(L.stripEmojiNames('企画です:人差し指と親指を交差:').text, '企画です。');
+  assert.strictEqual(L.stripEmojiNames('ありがとう！:拍手:').text, 'ありがとう！');
+  assert.strictEqual(L.stripEmojiNames('終わりました。 :pray:').text, '終わりました。');
+  assert.strictEqual(L.stripEmojiNames('（参加自由）:tada:').text, '（参加自由）');
+  // 絵文字だけの行は空の行として残す（「。」だけの行にしない）
+  assert.strictEqual(L.stripEmojiNames('上\n:tada::tada:\n下').text, '上\n\n下');
+});
+
+test('stripEmojiNames: 時刻・URL・ふつうのコロンは変えない', () => {
+  const keep = [
+    '時間 21:20~22:00 です',
+    '10:30:45 に開始',
+    'https://meet.google.com/abc-defg-hij',
+    'http://localhost:8765/mock-gas',
+    '日時：10月6日',
+    '比率は 3:2:1 です',
+    '注意:この行は消さない'
+  ].join('\n');
+  const r = L.stripEmojiNames(keep);
+  assert.strictEqual(r.text, keep);
+  assert.strictEqual(r.count, 0);
+  assert.strictEqual(L.countEmojiNames(keep), 0);
+  // 時刻のすぐ後ろの名前は取り除ける
+  assert.strictEqual(L.stripEmojiNames('10:30:smile:').text, '10:30。');
+});
+
+test('countEmojiNames: 取り除く数と同じ数を返す', () => {
+  const text = 'a:sparkles: b:+1::-1:\nc:ピカピカ:';
+  assert.strictEqual(L.countEmojiNames(text), 4);
+  assert.strictEqual(L.stripEmojiNames(text).count, 4);
+  assert.strictEqual(L.countEmojiNames(''), 0);
+});

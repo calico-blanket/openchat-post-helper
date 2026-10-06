@@ -207,6 +207,8 @@ function createGasContext() {
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       getUuid: () => require('node:crypto').randomUUID(),
+      // 開発サーバーでは待たない（Gemini のやり直しの待ち時間）
+      sleep: () => {},
       formatDate: (date, tz, pattern) => {
         const d = new Date(date.getTime() + 9 * 3600 * 1000);
         const map = {
