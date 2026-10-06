@@ -45,7 +45,7 @@
       <div class="field">
         <label for="inputUrl">元の投稿・記事の URL（任意）</label>
         <input type="url" id="inputUrl" inputmode="url" autocomplete="off" aria-describedby="inputUrlHelp">
-        <p id="inputUrlHelp" class="help">note・X などの URL を入れると本文を取りに行きます。Slack の URL からは取れないので、本文も貼り付けてください。</p>
+        <p id="inputUrlHelp" class="help">note・X などの URL を入れると本文を取りに行きます。Slack の URL からは取れないので、本文も貼り付けてください。「https://」は省いても、自動で補います。</p>
       </div>
 
       <div class="field">
@@ -108,6 +108,21 @@
           </div>
 
           <div id="threadContent">
+          <fieldset class="field" aria-describedby="threadModeHelp">
+            <legend>スレッドに貼る原文</legend>
+            <div class="radio-group">
+              <label class="choice"><input type="radio" name="threadMode" value="full" checked> 全文</label>
+              <label class="choice"><input type="radio" name="threadMode" value="excerpt"> 抜粋</label>
+            </div>
+            <p class="help" id="threadModeHelp">前置きの文（「転載です」「抜粋です」）が変わります。抜粋を選んでも、アプリは文を削りません。不要な行は、下の「スレッドの内容を直す」の原文から消してください。</p>
+          </fieldset>
+          <div id="emojiNameBox" class="field" hidden>
+            <p class="help" id="emojiNameNote"></p>
+            <div class="actions">
+              <button type="button" id="stripEmojiButton" class="button secondary" aria-describedby="emojiNameNote">絵文字の名前を取り除く</button>
+              <button type="button" id="undoStripEmojiButton" class="button secondary" hidden>取り除く前に戻す</button>
+            </div>
+          </div>
           <p class="help">①で貼った投稿のスレッドに、上から順に1通ずつコピーして貼ります。原文は AI を通さず、そのまま使います。</p>
           <ol id="threadMessages" class="message-list"></ol>
 

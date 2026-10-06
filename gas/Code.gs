@@ -274,7 +274,7 @@ function handleAnalyze_(body) {
     }, categories, tags));
   }
 
-  var responses = UrlFetchApp.fetchAll(requests);
+  var responses = retryGeminiIfBusy_(UrlFetchApp.fetchAll(requests), requests, 0);
   // 使用量は、結果を読み解く前に記録する（読み解きに失敗しても、使った分は残す）
   result.usage = recordUsage_('文章を整える', model, readUsage_(responses[0], useJev ? responses[1] : null));
   var gemini = parseGeminiAnalyzeResponse_(responses[0], categories, tags);
@@ -338,8 +338,8 @@ function handleAnalyze_(body) {
 
 /** analyze の入力を検証して整える */
 function normalizeAnalyzeInput_(body) {
-  var url = String(body.url || '').trim();
-  if (url && !/^https?:\/\/\S+$/i.test(url)) {
+  var url = normalizeUrlInput_(body.url);
+  if (url && !isValidUrl_(url)) {
     throw new Error('URL の形式が正しくありません: ' + url);
   }
   var source = String(body.source || '').trim();
@@ -748,10 +748,35 @@ function buildGeminiAnalyzeRequest_(options) {
   };
 }
 
+/** Gemini が一時的に混み合っているときの HTTP 番号（自動で1回だけやり直す） */
+var GEMINI_BUSY_CODES = [500, 503, 504];
+/** やり直す前に待つ時間（ミリ秒） */
+var GEMINI_RETRY_WAIT_MS = 3000;
+
+/**
+ * fetchAll の結果のうち、Gemini の応答（index 番目）が混み合いのエラーなら、
+ * 少し待って1回だけ送り直し、結果を差し替える。
+ */
+function retryGeminiIfBusy_(responses, requests, index) {
+  if (GEMINI_BUSY_CODES.indexOf(responses[index].getResponseCode()) === -1) { return responses; }
+  Utilities.sleep(GEMINI_RETRY_WAIT_MS);
+  var request = requests[index];
+  var params = {};
+  Object.keys(request).forEach(function (key) { if (key !== 'url') { params[key] = request[key]; } });
+  responses[index] = UrlFetchApp.fetch(request.url, params);
+  return responses;
+}
+
 /** Gemini の応答から本文テキスト（思考パートは除く）を取り出す。失敗時は日本語の Error */
 function readGeminiText_(response) {
   var code = response.getResponseCode();
   var raw = response.getContentText();
+  if (GEMINI_BUSY_CODES.indexOf(code) !== -1) {
+    throw new Error('AI（Gemini）が混み合っていて、やり直しても応答がありませんでした。少し待ってから、もう一度押してください（HTTP ' + code + '）');
+  }
+  if (code === 429) {
+    throw new Error('AI（Gemini）の利用回数が上限に達しました。しばらく待ってから、もう一度押してください（HTTP 429）');
+  }
   if (code !== 200) {
     throw new Error('Gemini API エラー（HTTP ' + code + '）: ' + String(raw).slice(0, 300));
   }
@@ -802,8 +827,9 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
       endTime: uncertain ? '' : time(json.endTime),
       place: buildPlaceLabel_(str(json.attendance), str(json.area)) || str(json.place),
       deadline: date(json.deadline),
-      joinUrl: /^https?:\/\/\S+$/i.test(str(json.joinUrl)) ? str(json.joinUrl) : '',
-      applyUrl: /^https?:\/\/\S+$/i.test(str(json.applyUrl)) ? str(json.applyUrl) : '',
+      // 原文に https:// なしで書かれた URL（meet.google.com/… など）も受け取る
+      joinUrl: isValidUrl_(normalizeUrlInput_(json.joinUrl)) ? normalizeUrlInput_(json.joinUrl) : '',
+      applyUrl: isValidUrl_(normalizeUrlInput_(json.applyUrl)) ? normalizeUrlInput_(json.applyUrl) : '',
       performers: str(json.performers)
     },
     imageText: str(json.imageText),
@@ -870,15 +896,40 @@ function buildPlaceLabel_(attendance, area) {
 }
 
 /**
+ * 入力された URL を整える純粋関数（js/logic.js の normalizeUrl と同じ規則）。
+ *   - 前後の空白を除き、「https://」の直後の空白（%20 を含む）を取り除く
+ *   - 「meet.google.com/…」のように https:// が無いドメインの形なら、https:// を補う
+ * URL らしくないもの（javascript: など）は変えずに返す（形式の検査は isValidUrl_ で行う）。
+ */
+function normalizeUrlInput_(text) {
+  var s = String(text || '').trim();
+  if (!s) { return ''; }
+  s = s.replace(/^(https?:\/\/)(?:\s|%20)+/i, '$1');
+  if (/^https?:\/\//i.test(s)) { return s; }
+  if (/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?([/?#]\S*)?$/i.test(s)) {
+    return 'https://' + s;
+  }
+  return s;
+}
+
+/** URL が使える形（http:// か https:// で始まり、空白を含まない）か */
+function isValidUrl_(text) {
+  return /^https?:\/\/[^\s/?#]+\S*$/i.test(String(text || ''));
+}
+
+/**
  * 文章の中から、指定の URL と同じもの（追跡用パラメーターなどの違いは無視）を探して返す純粋関数。
  * 見つからなければ空文字。AI が原文に無い URL を作っていないかを確かめるために使う。
+ * 原文に「meet.google.com/…」のように https:// なしで書かれた URL も探し、https:// を補って返す。
  */
 function findUrlInText_(url, text) {
-  var target = normalizeUrlForCompare_(url);
+  var target = normalizeUrlForCompare_(normalizeUrlInput_(url));
   if (!target) { return ''; }
-  var candidates = String(text || '').match(/https?:\/\/[^\s"'<>。、「」『』（）]+/g) || [];
+  var candidates = String(text || '').match(
+    /(?:https?:\/\/[^\s"'<>。、「」『』（）]+|[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?\/[^\s"'<>。、「」『』（）]*)/gi
+  ) || [];
   for (var i = 0; i < candidates.length; i++) {
-    var candidate = candidates[i].replace(/[.,!?！？]+$/, '');
+    var candidate = normalizeUrlInput_(candidates[i].replace(/[.,!?！？]+$/, ''));
     if (normalizeUrlForCompare_(candidate) === target) { return candidate; }
   }
   return '';
@@ -922,7 +973,7 @@ function handleSummarize_(body) {
     truncateText_(text, APP_CONFIG.limits.summaryInputMaxChars),
     length
   );
-  var response = UrlFetchApp.fetchAll([request])[0];
+  var response = retryGeminiIfBusy_(UrlFetchApp.fetchAll([request]), [request], 0)[0];
   var usage = recordUsage_('要約', getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, readUsage_(response, null));
   return { ok: true, summary: readGeminiText_(response).trim(), length: length, usage: usage };
 }
@@ -1112,7 +1163,7 @@ function validatePostInput_(body) {
     category: str(body.category).trim(),
     title: str(body.title).trim(),
     summary: str(body.summary),
-    url: str(body.url).trim(),
+    url: normalizeUrlInput_(body.url),
     original: str(body.original),
     tags: normalizeTagsInput_(body.tags),
     eventIso: str(body.eventIso).trim(),
@@ -1122,17 +1173,17 @@ function validatePostInput_(body) {
     memo: str(body.memo),
     author: str(body.author).trim(),
     talk: str(body.talk),
-    joinUrl: str(body.joinUrl).trim(),
-    applyUrl: str(body.applyUrl).trim()
+    joinUrl: normalizeUrlInput_(body.joinUrl),
+    applyUrl: normalizeUrlInput_(body.applyUrl)
   };
 
   if (!item.title) { throw new Error('タイトルを入力してください'); }
   if (!findByKey_(APP_CONFIG.kinds, item.kind)) { throw new Error('種別を選んでください'); }
   if (!findByKey_(APP_CONFIG.sources, item.source)) { throw new Error('入力元を選んでください'); }
   if (getCategories_().indexOf(item.category) === -1) { throw new Error('カテゴリを選んでください'); }
-  if (item.url && !/^https?:\/\/\S+$/i.test(item.url)) { throw new Error('URL の形式が正しくありません'); }
-  if (item.joinUrl && !/^https?:\/\/\S+$/i.test(item.joinUrl)) { throw new Error('参加 URL の形式が正しくありません'); }
-  if (item.applyUrl && !/^https?:\/\/\S+$/i.test(item.applyUrl)) { throw new Error('申込 URL の形式が正しくありません'); }
+  if (item.url && !isValidUrl_(item.url)) { throw new Error('URL の形式が正しくありません'); }
+  if (item.joinUrl && !isValidUrl_(item.joinUrl)) { throw new Error('参加 URL の形式が正しくありません'); }
+  if (item.applyUrl && !isValidUrl_(item.applyUrl)) { throw new Error('申込 URL の形式が正しくありません'); }
   if (item.eventIso && !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}\+09:00(\/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}\+09:00)?)?$/.test(item.eventIso)) {
     throw new Error('開催日時の形式が正しくありません: ' + item.eventIso);
   }

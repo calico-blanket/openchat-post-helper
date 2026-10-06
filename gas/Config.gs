@@ -97,22 +97,43 @@ var APP_CONFIG = {
   },
 
   // スレッド（詳細）の前置き（入力元に応じて自動で付ける。画面で編集できる）
+  //   full: 原文を全文貼るとき（初期値）／excerpt: 利用者が原文を抜粋したとき
+  //   「キー_noAuthor」は発信者の名前が空のときに使う
   threadPrefixes: {
-    slack: 'Slackからの転載です。発信者は{author}です。',
-    slack_noAuthor: '以下はSlackからの抜粋転載です。',
-    x: '↑{author}さんの投稿です。',
-    x_noAuthor: '↑Xの投稿です。',
-    instagram: '↑{author}さんのInstagramの投稿です。',
-    instagram_noAuthor: '↑Instagramの投稿です。',
-    threads: '↑{author}さんのThreadsの投稿です。',
-    threads_noAuthor: '↑Threadsの投稿です。',
-    line: '以下はLINE公式からの転載です。',
-    note: '以下は{author}さんのnote記事からの抜粋です。',
-    note_noAuthor: '以下はnote記事からの抜粋です。',
-    legislator: '以下は{author}議員の活動告知です。',
-    legislator_noAuthor: '以下は議員の活動告知です。',
-    flyer: '以下はチラシ画像から読み取った内容です。',
-    other: '以下は原文です。',
+    full: {
+      slack: '以下はSlackからの転載です。発信者は{author}です。',
+      slack_noAuthor: '以下はSlackからの転載です。',
+      x: '↑{author}さんの投稿です。',
+      x_noAuthor: '↑Xの投稿です。',
+      instagram: '↑{author}さんのInstagramの投稿です。',
+      instagram_noAuthor: '↑Instagramの投稿です。',
+      threads: '↑{author}さんのThreadsの投稿です。',
+      threads_noAuthor: '↑Threadsの投稿です。',
+      line: '以下はLINE公式からの転載です。',
+      note: '以下は{author}さんのnote記事からの転載です。',
+      note_noAuthor: '以下はnote記事からの転載です。',
+      legislator: '以下は{author}議員の活動告知です。',
+      legislator_noAuthor: '以下は議員の活動告知です。',
+      flyer: '以下はチラシ画像から読み取った内容です。',
+      other: '以下は原文です。'
+    },
+    excerpt: {
+      slack: '以下はSlackからの抜粋です。発信者は{author}です。',
+      slack_noAuthor: '以下はSlackからの抜粋です。',
+      x: '↑{author}さんの投稿からの抜粋です。',
+      x_noAuthor: '↑Xの投稿からの抜粋です。',
+      instagram: '↑{author}さんのInstagramの投稿からの抜粋です。',
+      instagram_noAuthor: '↑Instagramの投稿からの抜粋です。',
+      threads: '↑{author}さんのThreadsの投稿からの抜粋です。',
+      threads_noAuthor: '↑Threadsの投稿からの抜粋です。',
+      line: '以下はLINE公式からの抜粋です。',
+      note: '以下は{author}さんのnote記事からの抜粋です。',
+      note_noAuthor: '以下はnote記事からの抜粋です。',
+      legislator: '以下は{author}議員の活動告知からの抜粋です。',
+      legislator_noAuthor: '以下は議員の活動告知からの抜粋です。',
+      flyer: '以下はチラシ画像から読み取った内容の抜粋です。',
+      other: '以下は原文からの抜粋です。'
+    },
     // 要約ボタンで要約版に切り替えたときの前置き
     summary: '以下は要約です。'
   },

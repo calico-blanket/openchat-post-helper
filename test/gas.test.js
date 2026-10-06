@@ -170,6 +170,8 @@ function load({ props, fetch } = {}) {
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       getUuid: () => 'uuid-' + (++uuid),
+      // 待つ時間は記録だけして、実際には待たない
+      sleep: (ms) => { calls.push({ sleep: ms }); },
       // 保存のたびに1秒進む固定の時計（日時の文字列が決定的になるように）
       formatDate: (date, tz, pattern) => {
         if (pattern === 'yyyy-MM-dd') { return '2026-10-02'; }
@@ -571,7 +573,7 @@ test('analyze: GEMINI_MODEL を設定すればそのモデルを使う／キー�
 });
 
 test('analyze: Gemini の HTTP エラー・ブロック・壊れた JSON は日本語のエラーにする', () => {
-  assert.match(post(load({ fetch: () => res(429, 'quota') }), { action: 'analyze', text: '本文' }).error, /Gemini API エラー（HTTP 429）/);
+  assert.match(post(load({ fetch: () => res(400, 'bad request') }), { action: 'analyze', text: '本文' }).error, /Gemini API エラー（HTTP 400）/);
   assert.match(post(load({ fetch: () => res(200, { promptFeedback: { blockReason: 'SAFETY' } }) }), { action: 'analyze', text: '本文' }).error, /SAFETY/);
   assert.match(post(load({ fetch: () => geminiRes('{壊れた') }), { action: 'analyze', text: '本文' }).error, /JSON として読めません/);
 });
@@ -1029,8 +1031,47 @@ test('検索: 発信者とトーク本文もキーワードの対象', () => {
 test('保存: 参加URL・申込URL の形式を検証し、発信者・トーク本文の長さも確かめる', () => {
   const env = load();
   assert.match(post(env, validPost({ joinUrl: 'javascript:alert(1)' })).error, /参加 URL の形式/);
-  assert.match(post(env, validPost({ applyUrl: 'forms.gle/xyz' })).error, /申込 URL の形式/);
+  assert.match(post(env, validPost({ applyUrl: 'ftp://example.com/x' })).error, /申込 URL の形式/);
+  assert.match(post(env, validPost({ url: '申込はこちら' })).error, /URL の形式/);
   assert.match(post(env, validPost({ talk: 'あ'.repeat(50000) })).error, /長すぎます/);
+});
+
+test('保存: https:// の無い URL は補い、「https://%20…」の空白は取り除いて保存する', () => {
+  const env = load();
+  const r = post(env, validPost({
+    url: 'example.com/post/1',
+    joinUrl: 'https://%20meet.google.com/nrg-dicq-brn',
+    applyUrl: ' forms.gle/xyz '
+  }));
+  assert.ok(!r.error, r.error);
+  const item = post(env, { action: 'search' }).items[0];
+  assert.strictEqual(item.url, 'https://example.com/post/1');
+  assert.strictEqual(item.joinUrl, 'https://meet.google.com/nrg-dicq-brn');
+  assert.strictEqual(item.applyUrl, 'https://forms.gle/xyz');
+});
+
+test('normalizeUrlInput_: https:// を補い、URL でないものは変えない', () => {
+  const { context } = load();
+  const n = context.normalizeUrlInput_;
+  assert.strictEqual(n('meet.google.com/nrg-dicq-brn'), 'https://meet.google.com/nrg-dicq-brn');
+  assert.strictEqual(n('https:// meet.google.com/abc'), 'https://meet.google.com/abc');
+  assert.strictEqual(n('https://%20meet.google.com/abc'), 'https://meet.google.com/abc');
+  assert.strictEqual(n('http://example.com'), 'http://example.com');
+  assert.strictEqual(n('javascript:alert(1)'), 'javascript:alert(1)');
+  assert.strictEqual(n('申込はこちら'), '申込はこちら');
+  assert.strictEqual(n(''), '');
+  assert.strictEqual(context.isValidUrl_('https://'), false);
+  assert.strictEqual(context.isValidUrl_('https://a.com/x y'), false);
+});
+
+test('analyze: 原文に https:// なしで書かれた参加 URL（Google Meet）も拾い、https:// を補う', () => {
+  const original = ' Google meet のリンク： meet.google.com/nrg-dicq-brn\n\n今週は火曜日の開催です';
+  for (const proposed of ['meet.google.com/nrg-dicq-brn', 'https://meet.google.com/nrg-dicq-brn']) {
+    const env = load({ fetch: () => geminiRes(geminiAnalyze({ joinUrl: proposed, applyUrl: '' })) });
+    const r = post(env, { action: 'analyze', text: original });
+    assert.strictEqual(r.event.joinUrl, 'https://meet.google.com/nrg-dicq-brn', proposed);
+    assert.strictEqual(r.originalText, original, '原文はそのまま');
+  }
 });
 
 test('analyze: 参加URL・申込URL は原文にあるものだけ残し（整えた形）、無いものは外して警告する', () => {
@@ -1064,6 +1105,10 @@ test('findUrlInText_: 追跡用パラメーターや末尾の句読点の違い�
   assert.strictEqual(f('https://example.com/a', 'https://example.com/a!'), 'https://example.com/a');
   assert.strictEqual(f('https://example.com/b', 'https://example.com/a'), '');
   assert.strictEqual(f('', 'https://example.com/a'), '');
+  // https:// なしで書かれた URL も見つけ、https:// を補って返す
+  assert.strictEqual(f('https://meet.google.com/abc-defg-hij', 'リンク： meet.google.com/abc-defg-hij です'), 'https://meet.google.com/abc-defg-hij');
+  assert.strictEqual(f('meet.google.com/abc-defg-hij', '参加 https://meet.google.com/abc-defg-hij'), 'https://meet.google.com/abc-defg-hij');
+  assert.strictEqual(f('meet.google.com/zzz', 'リンク： meet.google.com/abc'), '');
 });
 
 test('発信者の候補: 管理画面の名前は「発信者の候補」', () => {
@@ -1448,4 +1493,51 @@ test('sheetEventLabel_・sheetDateLabel_: 公開用シートの日時の表記',
   assert.strictEqual(context.sheetEventLabel_('2026-10-24T13:00+09:00'), '2026/10/24(土) 13:00〜');
   assert.strictEqual(context.sheetEventLabel_(''), '');
   assert.strictEqual(context.sheetDateLabel_('2026-02-30'), '');
+});
+
+// ---- Gemini が混み合っているとき（HTTP 503 など） ----------------------
+
+const BUSY_BODY = { error: { code: 503, message: 'This model is currently experiencing high demand.', status: 'UNAVAILABLE' } };
+
+test('analyze: Gemini が 503 なら、少し待って1回だけやり直し、通れば結果を返す', () => {
+  let geminiCalls = 0;
+  const env = load({
+    fetch: (url) => {
+      geminiCalls++;
+      return geminiCalls === 1 ? res(503, BUSY_BODY) : geminiRes(geminiAnalyze());
+    }
+  });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.ok(!r.error, r.error);
+  assert.strictEqual(r.title, '街頭演説');
+  assert.strictEqual(geminiCalls, 2);
+  assert.ok(env.calls.some((c) => c.sleep === 3000), '送り直す前に待つ');
+  // 送り直しにも、同じ中身（本文・API キーのヘッダー）を使う
+  const geminiRequests = env.calls.filter((c) => c.url);
+  assert.strictEqual(geminiRequests[1].payload, geminiRequests[0].payload);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(geminiRequests[1].headers)), JSON.parse(JSON.stringify(geminiRequests[0].headers)));
+});
+
+test('analyze: やり直しても 503 なら、混み合っている旨を日本語で返す（やり直しは1回だけ）', () => {
+  let geminiCalls = 0;
+  const env = load({ fetch: () => { geminiCalls++; return res(503, BUSY_BODY); } });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.match(r.error, /AI（Gemini）が混み合っていて、やり直しても応答がありませんでした。少し待ってから、もう一度押してください（HTTP 503）/);
+  assert.strictEqual(geminiCalls, 2);
+});
+
+test('analyze: 429（回数の上限）はやり直さず、上限に達した旨を返す', () => {
+  let geminiCalls = 0;
+  const env = load({ fetch: () => { geminiCalls++; return res(429, { error: { code: 429 } }); } });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.match(r.error, /利用回数が上限に達しました/);
+  assert.strictEqual(geminiCalls, 1);
+});
+
+test('summarize: Gemini が 503 なら、1回だけやり直す', () => {
+  let geminiCalls = 0;
+  const env = load({ fetch: () => { geminiCalls++; return geminiCalls === 1 ? res(503, BUSY_BODY) : geminiRes('要約した文'); } });
+  const r = post(env, { action: 'summarize', text: '原文', length: '3lines' });
+  assert.strictEqual(r.summary, '要約した文');
+  assert.strictEqual(geminiCalls, 2);
 });

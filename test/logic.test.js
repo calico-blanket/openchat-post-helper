@@ -181,9 +181,46 @@ test('buildTalkBody: 記事型は日時行を出さず、X は投稿者名入り
 // ---- スレッド: 前置き＋原文、原文を一字も変えない -------------------
 
 test('buildThreadPrefix: 入力元に応じた前置き、要約版は「以下は要約です。」', () => {
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの抜粋転載です。');
+  // 初期値（mode 省略）は全文
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの転載です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'x', '山田', false), '↑山田さんの投稿です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', true), '以下は要約です。');
+});
+
+test('buildThreadPrefix: 全文と抜粋で書き分け、「（全文）」は付けない', () => {
+  const p = (source, author, mode) => L.buildThreadPrefix(CONFIG, source, author, false, mode);
+  assert.strictEqual(p('slack', '', 'full'), '以下はSlackからの転載です。');
+  assert.strictEqual(p('slack', '', 'excerpt'), '以下はSlackからの抜粋です。');
+  assert.strictEqual(p('slack', '運営アカウント', 'excerpt'), '以下はSlackからの抜粋です。発信者は運営アカウントです。');
+  assert.strictEqual(p('line', '', 'full'), '以下はLINE公式からの転載です。');
+  assert.strictEqual(p('line', '', 'excerpt'), '以下はLINE公式からの抜粋です。');
+  assert.strictEqual(p('note', '山田', 'full'), '以下は山田さんのnote記事からの転載です。');
+  assert.strictEqual(p('note', '山田', 'excerpt'), '以下は山田さんのnote記事からの抜粋です。');
+  assert.strictEqual(p('x', '', 'excerpt'), '↑Xの投稿からの抜粋です。');
+  // 要約版は全文・抜粋に関係なく「以下は要約です。」
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', true, 'excerpt'), '以下は要約です。');
+  // すべての入力元・発信者の有無・全文/抜粋で、{author} が残らず、「（全文）」も付かない
+  CONFIG.sources.forEach((s) => ['', '山田'].forEach((a) => ['full', 'excerpt'].forEach((m) => {
+    const text = p(s.key, a, m);
+    assert.ok(text && !/\{author\}|（全文）/.test(text), `${s.key}/${a}/${m}: ${text}`);
+    assert.strictEqual(/抜粋/.test(text), m === 'excerpt', `${s.key}/${a}/${m}: ${text}`);
+  })));
+  // 組に分かれていない古い形の設定（フォーク先）もそのまま使える
+  assert.strictEqual(L.buildThreadPrefix({ threadPrefixes: { slack: '旧: Slack', other: '旧' } }, 'slack', '', false, 'excerpt'), '旧: Slack');
+});
+
+test('normalizeUrl: https:// を補い、空白や %20 を取り除き、URL でないものは変えない', () => {
+  assert.strictEqual(L.normalizeUrl('meet.google.com/nrg-dicq-brn'), 'https://meet.google.com/nrg-dicq-brn');
+  assert.strictEqual(L.normalizeUrl('https://%20meet.google.com/nrg-dicq-brn'), 'https://meet.google.com/nrg-dicq-brn');
+  assert.strictEqual(L.normalizeUrl(' https:// zoom.us/j/1 '), 'https://zoom.us/j/1');
+  assert.strictEqual(L.normalizeUrl('HTTP://Example.com/a'), 'HTTP://Example.com/a');
+  assert.strictEqual(L.normalizeUrl('localhost:8765'), 'localhost:8765');
+  assert.strictEqual(L.normalizeUrl('javascript:alert(1)'), 'javascript:alert(1)');
+  assert.strictEqual(L.normalizeUrl(''), '');
+  assert.ok(L.isValidUrl('https://meet.google.com/x'));
+  assert.ok(!L.isValidUrl('javascript:alert(1)'));
+  assert.ok(!L.isValidUrl('https://'));
+  assert.ok(!L.isValidUrl('https://a.com/x y'));
 });
 
 /** スレッドのメッセージから前置き・コメントを外し、本文部分だけをつなぎ直す */
@@ -349,10 +386,10 @@ test('stripTitleBrackets: 外側の【】・閉じ側が切れた【を外し、
   assert.strictEqual(L.stripTitleBrackets(''), '');
 });
 
-test('Slack の前置き: 名前があれば「発信者は○○です。」を付け、なければ従来の文', () => {
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', false), 'Slackからの転載です。発信者は運営アカウントです。');
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの抜粋転載です。');
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '  ', false), '以下はSlackからの抜粋転載です。');
+test('Slack の前置き: 名前があれば「発信者は○○です。」を足すだけで、全文・抜粋は切り替わらない', () => {
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', false), '以下はSlackからの転載です。発信者は運営アカウントです。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの転載です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '  ', false), '以下はSlackからの転載です。');
   // 要約版は名前に関係なく「以下は要約です。」
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', true), '以下は要約です。');
 });
@@ -517,4 +554,62 @@ test('formatYen・usageSummaryText: 概算の金額と今月の集計の表示',
   assert.strictEqual(L.usageSummaryText({ month: '2026-10', count: 3, analyzeCount: 2, summarizeCount: 1, yen: 0.96 }),
     '2026年10月の概算: 約 1.0 円（文章を整える 2 回・要約 1 回）');
   assert.strictEqual(L.usageSummaryText(null), '');
+});
+
+// ---- Slack の絵文字の名前（:○○:）を取り除く --------------------------
+
+test('stripEmojiNames: 行の最後の名前を取り除いたら「。」を付け、途中のものは取り除くだけ', () => {
+  const r = L.stripEmojiNames([
+    '【今夜は深掘りナイトです:sparkles: 】',
+    '交流のためのインタビュー企画です:hand_with_index_finger_and_thumb_crossed:',
+    '',
+    ' 日時：2026年10月6日(火)21:20~22:00',
+    ' ゲスト： @そんちょー さんです:relaxed::clap:',
+    '21:20よりスタート致しますので、よろしくお願い致します:mega:',
+    '※アーカイブも後日共有致します:+1: （編集済み）'
+  ].join('\n'));
+  assert.strictEqual(r.text, [
+    '【今夜は深掘りナイトです 】',
+    '交流のためのインタビュー企画です。',
+    '',
+    ' 日時：2026年10月6日(火)21:20~22:00',
+    ' ゲスト： @そんちょー さんです。',
+    '21:20よりスタート致しますので、よろしくお願い致します。',
+    '※アーカイブも後日共有致します。'
+  ].join('\n'));
+  assert.strictEqual(r.count, 6);
+});
+
+test('stripEmojiNames: スマホの日本語の名前も取り除き、句読点・閉じかっこで終わる行には「。」を付けない', () => {
+  assert.strictEqual(L.stripEmojiNames('企画です:人差し指と親指を交差:').text, '企画です。');
+  assert.strictEqual(L.stripEmojiNames('ありがとう！:拍手:').text, 'ありがとう！');
+  assert.strictEqual(L.stripEmojiNames('終わりました。 :pray:').text, '終わりました。');
+  assert.strictEqual(L.stripEmojiNames('（参加自由）:tada:').text, '（参加自由）');
+  // 絵文字だけの行は空の行として残す（「。」だけの行にしない）
+  assert.strictEqual(L.stripEmojiNames('上\n:tada::tada:\n下').text, '上\n\n下');
+});
+
+test('stripEmojiNames: 時刻・URL・ふつうのコロンは変えない', () => {
+  const keep = [
+    '時間 21:20~22:00 です',
+    '10:30:45 に開始',
+    'https://meet.google.com/abc-defg-hij',
+    'http://localhost:8765/mock-gas',
+    '日時：10月6日',
+    '比率は 3:2:1 です',
+    '注意:この行は消さない'
+  ].join('\n');
+  const r = L.stripEmojiNames(keep);
+  assert.strictEqual(r.text, keep);
+  assert.strictEqual(r.count, 0);
+  assert.strictEqual(L.countEmojiNames(keep), 0);
+  // 時刻のすぐ後ろの名前は取り除ける
+  assert.strictEqual(L.stripEmojiNames('10:30:smile:').text, '10:30。');
+});
+
+test('countEmojiNames: 取り除く数と同じ数を返す', () => {
+  const text = 'a:sparkles: b:+1::-1:\nc:ピカピカ:';
+  assert.strictEqual(L.countEmojiNames(text), 4);
+  assert.strictEqual(L.stripEmojiNames(text).count, 4);
+  assert.strictEqual(L.countEmojiNames(''), 0);
 });
