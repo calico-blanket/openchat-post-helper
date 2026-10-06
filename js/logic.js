@@ -341,11 +341,39 @@
 
   // ---- スレッド（詳細） -----------------------------------------
 
-  /** 入力元に応じたスレッドの前置き（要約版なら「以下は要約です。」） */
-  function buildThreadPrefix(config, source, author, isSummary) {
+  /**
+   * 入力元に応じたスレッドの前置き（要約版なら「以下は要約です。」）。
+   * mode は 'full'（全文、初期値）か 'excerpt'（抜粋）。発信者の有無では全文・抜粋を切り替えない。
+   */
+  function buildThreadPrefix(config, source, author, isSummary, mode) {
     var map = (config && config.threadPrefixes) || {};
     if (isSummary) { return map.summary || ''; }
-    return fillTemplate(pickTemplate(map, source, author), { author: String(author || '').trim() });
+    // 組に分かれていない古い形の設定（フォーク先など）は、そのまま使う
+    var set = map[mode === 'excerpt' ? 'excerpt' : 'full'];
+    if (!set || typeof set !== 'object') { set = map; }
+    return fillTemplate(pickTemplate(set, source, author), { author: String(author || '').trim() });
+  }
+
+  /**
+   * 入力された URL を整える純粋関数。
+   *   - 前後の空白を除き、「https://」の直後の空白（%20 を含む）を取り除く
+   *   - 「meet.google.com/…」のように https:// が無いドメインの形なら、https:// を補う
+   * URL らしくないもの（javascript: など）は変えずに返す（形式の検査は isValidUrl で行う）。
+   */
+  function normalizeUrl(text) {
+    var s = String(text || '').trim();
+    if (!s) { return ''; }
+    s = s.replace(/^(https?:\/\/)(?:\s|%20)+/i, '$1');
+    if (/^https?:\/\//i.test(s)) { return s; }
+    if (/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?([/?#]\S*)?$/i.test(s)) {
+      return 'https://' + s;
+    }
+    return s;
+  }
+
+  /** URL が使える形（http:// か https:// で始まり、空白を含まない）か */
+  function isValidUrl(text) {
+    return /^https?:\/\/[^\s/?#]+\S*$/i.test(String(text || ''));
   }
 
   /** サロゲートペア（絵文字など）の途中で切らないよう、切る位置を1つ前へずらす */
@@ -758,6 +786,8 @@
     usageSummaryText: usageSummaryText,
     archiveEventLabel: archiveEventLabel,
     buildArchiveView: buildArchiveView,
-    moveArrayItem: moveArrayItem
+    moveArrayItem: moveArrayItem,
+    normalizeUrl: normalizeUrl,
+    isValidUrl: isValidUrl
   };
 }));

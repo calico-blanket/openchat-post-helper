@@ -259,15 +259,17 @@
   }
 
   function runAnalyze() {
-    var url = $('inputUrl').value.trim();
+    // 「meet.google.com/…」のように https:// が無ければ補う
+    var url = L.normalizeUrl($('inputUrl').value);
+    $('inputUrl').value = url;
     var text = $('inputText').value;
     if (!url && !text.trim() && !state.image) {
       alertMessage('URL・本文・画像のどれかを入れてください');
       $('inputUrl').focus();
       return;
     }
-    if (url && !/^https?:\/\/\S+$/i.test(url)) {
-      alertMessage('URL は http:// または https:// で始まる形で入れてください');
+    if (url && !L.isValidUrl(url)) {
+      alertMessage('URL の形が読み取れません。「example.com/…」や「https://…」の形で入れてください');
       $('inputUrl').focus();
       return;
     }
@@ -399,9 +401,10 @@
     $('fPlace').value = post.event.place || '';
     $('fPerformers').value = post.event.performers || '';
     $('fDeadline').value = post.event.deadline || '';
-    $('fJoinUrl').value = post.event.joinUrl || '';
-    $('fApplyUrl').value = post.event.applyUrl || '';
-    $('fUrl').value = post.url;
+    // 以前の不具合で「https://%20…」の形で保存された URL も、ここで整える
+    $('fJoinUrl').value = L.normalizeUrl(post.event.joinUrl);
+    $('fApplyUrl').value = L.normalizeUrl(post.event.applyUrl);
+    $('fUrl').value = L.normalizeUrl(post.url);
     // 保存済みのトーク本文があれば、それをそのまま使う（作り直さない）
     state.talkEdited = !!post.talk;
     $('fTalk').value = post.talk || '';
@@ -410,6 +413,8 @@
     $('fSummaryDraft').value = '';
     $('summaryDraftArea').hidden = true;
     $('revertSummaryButton').hidden = true;
+    // スレッドの原文は、初期値を「全文」にする
+    document.querySelector('input[name="threadMode"][value="full"]').checked = true;
     $('fPrefix').value = autoPrefix();
     state.useThreadEdited = false;
     $('fUseThread').checked = L.defaultUseThread(config(), post.source, post.url);
@@ -536,7 +541,7 @@
       category: $('fCategory').value,
       title: $('fTitle').value.trim(),
       summary: $('fSummary').value.trim(),
-      url: $('fUrl').value.trim(),
+      url: L.normalizeUrl($('fUrl').value),
       original: $('fOriginal').value,
       talk: $('fTalk').value,
       useThread: $('fUseThread').checked,
@@ -549,14 +554,20 @@
         place: $('fPlace').value.trim(),
         performers: $('fPerformers').value.trim(),
         deadline: $('fDeadline').value,
-        joinUrl: $('fJoinUrl').value.trim(),
-        applyUrl: $('fApplyUrl').value.trim()
+        joinUrl: L.normalizeUrl($('fJoinUrl').value),
+        applyUrl: L.normalizeUrl($('fApplyUrl').value)
       }
     };
   }
 
+  /** スレッドに貼る原文の選択（'full' 全文 / 'excerpt' 抜粋） */
+  function threadMode() {
+    var checked = document.querySelector('input[name="threadMode"]:checked');
+    return checked ? checked.value : 'full';
+  }
+
   function autoPrefix() {
-    return L.buildThreadPrefix(config(), $('fSource').value, $('fAuthor').value, state.summaryMode);
+    return L.buildThreadPrefix(config(), $('fSource').value, $('fAuthor').value, state.summaryMode, threadMode());
   }
 
   function todayIso() { return L.todayIsoInTokyo(new Date()); }
@@ -1125,7 +1136,22 @@
       if (event.target.id === 'fSource' || event.target.id === 'fAuthor') {
         if (!state.prefixEdited) { $('fPrefix').value = autoPrefix(); }
       }
+      // 全文・抜粋をはっきり選んだときは、手で直した前置きより選択を優先する
+      if (event.target.name === 'threadMode') {
+        state.prefixEdited = false;
+        $('fPrefix').value = autoPrefix();
+      }
       refreshOutputs();
+    });
+    // URL 欄は、入力を終えたときに「https://」を補った形を見せる
+    ['inputUrl', 'fUrl', 'fJoinUrl', 'fApplyUrl'].forEach(function (id) {
+      $(id).addEventListener('blur', function () {
+        var normalized = L.normalizeUrl($(id).value);
+        if (normalized !== $(id).value) {
+          $(id).value = normalized;
+          if (id !== 'inputUrl') { refreshOutputs(); }
+        }
+      });
     });
     $('postForm').addEventListener('change', refreshOutputs);
     $('postForm').addEventListener('submit', function (e) { e.preventDefault(); });

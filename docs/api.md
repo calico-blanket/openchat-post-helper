@@ -65,7 +65,8 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 - `original`: 画面で「スレッドにも投稿する」を外し、URL がある投稿は空で送る（全文は URL 先にあるため保存しない）
 - 重複チェックは、追跡用パラメーターを取り除いた URL どうしで比べる（twitter.com と x.com、threads.net と threads.com も同じとみなす）
 - `author`: 発信者。`talk`: 実際にトークに貼る文（手で直した文を含む）
-- `joinUrl`（参加 URL）・`applyUrl`（申込 URL）: `http(s)://` で始まる URL（空も可）。analyze では、AI が示した URL のうち原文に実際にあるものだけを `event.joinUrl`・`event.applyUrl` で返す
+- `joinUrl`（参加 URL）・`applyUrl`（申込 URL）: `http(s)://` で始まる URL（空も可）。analyze では、AI が示した URL のうち原文に実際にあるものだけを `event.joinUrl`・`event.applyUrl` で返す（原文に `meet.google.com/…` のように `https://` なしで書かれていても拾い、`https://` を補う）
+- `url` `joinUrl` `applyUrl` は、`https://` が無いドメインの形（例: `meet.google.com/abc`）なら `https://` を補い、`https://` の直後の空白（`%20` を含む）は取り除いてから検証する（analyze の `url` も同じ）。`javascript:` などはそのまま拒否する
 - `tags`: 登録済みタグか、議員名一覧の名前だけ
 - 各値はスプレッドシートの 1 セルの上限（50,000 文字）まで
 
