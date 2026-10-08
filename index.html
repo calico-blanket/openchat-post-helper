@@ -288,6 +288,11 @@
         <details class="field">
           <summary>タグで絞り込む</summary>
           <div id="searchTagGroup" class="check-group"></div>
+          <fieldset class="field" id="searchTagModeGroup">
+            <legend>複数のタグを選んだとき</legend>
+            <label class="choice"><input type="radio" name="searchTagMode" value="or" checked> どれか1つでも持つ（いずれか）</label>
+            <label class="choice"><input type="radio" name="searchTagMode" value="and"> すべて持つ</label>
+          </fieldset>
         </details>
         <button type="submit" class="button primary">検索</button>
       </form>
@@ -339,6 +344,20 @@
         <h2 id="archiveHeading">公開の一覧ページ</h2>
         <p><a id="archiveLink" href="/archive.html" target="_blank" rel="noopener noreferrer">公開の一覧ページを開く（新しいタブ）</a></p>
         <p id="archiveState" class="help">合言葉なしで誰でも読める、記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。</p>
+      </section>
+
+      <section aria-labelledby="kindManageHeading">
+        <h2 id="kindManageHeading" tabindex="-1">種別</h2>
+        <p class="help">トークの形と、AI が判定する選択肢を決めます。「日時あり」の種別は、スケジュールと同じく日時・場所の行が出ます。最初の3つは削除できません。</p>
+        <ul id="kindManageList" class="manage-list"></ul>
+        <div class="add-row">
+          <label for="newKindLabel">追加する種別の名前</label>
+          <input type="text" id="newKindLabel" maxlength="20">
+          <label for="newKindDescription">どんな投稿か（AI の判定の手がかり）</label>
+          <input type="text" id="newKindDescription" placeholder="例: ボランティアや参加者の募集">
+          <label class="choice"><input type="checkbox" id="newKindSchedule"> 日時あり（スケジュールと同じ形にする）</label>
+          <button type="button" id="addKindButton" class="button secondary">追加</button>
+        </div>
       </section>
 
       <section aria-labelledby="categoryManageHeading">

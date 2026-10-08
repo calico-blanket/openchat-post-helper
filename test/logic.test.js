@@ -127,6 +127,20 @@ test('pickTemplate: 名前が空なら _noAuthor を使い、{author} を残さ�
   assert.strictEqual(L.pickTemplate({ a: '{author}です', other: 'その他' }, 'a', ''), 'その他');
 });
 
+test('isScheduleKind / buildTalkBody: 画面で追加した「日時あり」の種別も、スケジュール型として日時の行を出す', () => {
+  const config = Object.assign({}, CONFIG, { kinds: [{ key: 'schedule', schedule: true }, { key: 'article', schedule: false }, { key: 'custom_a', schedule: true }, { key: 'custom_b', schedule: false }] });
+  assert.strictEqual(L.isScheduleKind('custom_a', config), true);
+  assert.strictEqual(L.isScheduleKind('custom_b', config), false);
+  assert.strictEqual(L.isScheduleKind('article', config), false);
+  assert.strictEqual(L.isScheduleKind('', config), false);
+  // 設定に種別の一覧が無い古い状態でも 'schedule' は従来どおり
+  assert.strictEqual(L.isScheduleKind('schedule', {}), true);
+  const post = { title: 'T', summary: '・要点', kind: 'custom_a', source: 'slack', event: { date: '2026-10-03', startTime: '19:00', endTime: '21:00' } };
+  assert.match(L.buildTalkBody(post, config, '2026-10-01'), /📅 10\/3\(土\) 19:00〜21:00/);
+  assert.doesNotMatch(L.buildTalkBody(post, config, '2026-10-01'), /・要点/);
+  assert.doesNotMatch(L.buildTalkBody(Object.assign({}, post, { kind: 'custom_b' }), config, '2026-10-01'), /📅/);
+});
+
 test('buildTalkBody: スケジュール型は概略を載せず「いつ・どこで」を並べ、出典行と定型句を自動で付ける', () => {
   const body = L.buildTalkBody({
     title: 'バイブコーディング勉強会・交流会',
