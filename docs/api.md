@@ -25,11 +25,13 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
 | `update` | `id` ＋ 投稿データ ＋ `force?` | `id`（登録日時と ID は変えない） |
 | `delete` | `id` | `id` |
-| `search` | `keyword?` `category?` `kind?` `tags?: []` `offset?` | `items` `hasMore`（新しい順に 50 件ずつ。カテゴリ横断） |
+| `search` | `keyword?` `category?` `kind?` `tags?: []` `tagMode?` `offset?` | `items` `hasMore`（新しい順に 50 件ずつ。カテゴリ横断。`tags` は既定がどれか1つでも持つ（OR）、`tagMode: "and"` ですべて持つもの） |
 | `addCategory` / `removeCategory` | `name` | `categories` |
 | `reorderCategories` | `categories: []` | `categories` |
 | `addTag` / `removeTag` | `name` | `tags` |
 | `reorderTags` | `tags: []` | `tags` |
+| `addKind` | `label` `description?` `schedule?: boolean` | `kinds`（組み込み＋追加分。`schedule: true` は日時・場所の行を出す型。名前の重複は不可、追加は20個まで） |
+| `removeKind` | `key` | `kinds`（組み込みの種別は削除できない） |
 | `addAuthor` / `removeAuthor` | `name` | `authors`（発信者の候補。0件も可） |
 | `syncPublicSheet` | なし | `count`（公開用スプレッドシートの「記録一覧」タブを作り直した件数）。未設定なら `skipped: true` |
 | `reorderAuthors` | `authors: []` | `authors` |

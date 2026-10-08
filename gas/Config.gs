@@ -37,9 +37,10 @@ var APP_CONFIG = {
     { key: 'other', label: 'その他' }
   ],
 
-  // 種別（LLM・Jev が判定する。key は保存時の値）
+  // 種別（LLM・Jev が判定する。key は保存時の値）。ここにあるのは組み込みの種別（画面からは消せない）
+  // schedule: true の種別は、トークに日時・場所の行を出す（スケジュール型）。画面の設定からも種別を追加できる
   kinds: [
-    { key: 'schedule', label: 'スケジュール', description: '日時が決まっているイベント・街頭演説・説明会などの告知' },
+    { key: 'schedule', label: 'スケジュール', description: '日時が決まっているイベント・街頭演説・説明会などの告知', schedule: true },
     { key: 'article', label: '記事', description: '記事・ブログ・解説・お知らせなど、日時が主題ではない情報' },
     { key: 'legislator', label: '議員活動', description: '議員の議会質問・視察・面会など、議員本人の活動の報告' }
   ],

@@ -28,6 +28,8 @@ var JEV_THRESHOLD = 0.5;
 var CATEGORIES_PROPERTY = 'CATEGORIES_JSON';
 var TAGS_PROPERTY = 'TAGS_JSON';
 var AUTHORS_PROPERTY = 'AUTHORS_JSON';
+var KINDS_PROPERTY = 'KINDS_JSON';
+var MAX_CUSTOM_KINDS = 20;
 
 // 保存先シート。1行1件。
 // 列は「見出しの名前」で読み書きする（列の位置は決め打ちしない）。そのため、
@@ -105,6 +107,8 @@ function doPost(e) {
       case 'addTag': return jsonResponse_(handleAddListItem_(body, 'tag'));
       case 'removeTag': return jsonResponse_(handleRemoveListItem_(body, 'tag'));
       case 'reorderTags': return jsonResponse_(handleReorderList_(body.tags, 'tag'));
+      case 'addKind': return jsonResponse_(withLock_(function () { return handleAddKind_(body); }));
+      case 'removeKind': return jsonResponse_(withLock_(function () { return handleRemoveKind_(body); }));
       case 'addAuthor': return jsonResponse_(handleAddListItem_(body, 'author'));
       case 'removeAuthor': return jsonResponse_(handleRemoveListItem_(body, 'author'));
       case 'reorderAuthors': return jsonResponse_(handleReorderList_(body.authors, 'author'));
@@ -166,13 +170,21 @@ function withLock_(fn) {
 
 // ---- bootstrap ---------------------------------------------
 
+/** 画面に渡す設定。種別は、組み込み＋画面で追加したものにする（APP_CONFIG 自体は書き換えない） */
+function configForClient_() {
+  var copy = {};
+  Object.keys(APP_CONFIG).forEach(function (key) { copy[key] = APP_CONFIG[key]; });
+  copy.kinds = getKinds_();
+  return copy;
+}
+
 /**
  * 画面の初期表示に必要な設定を返す（秘密情報は含めない）。
  */
 function handleBootstrap_() {
   return {
     ok: true,
-    config: APP_CONFIG,
+    config: configForClient_(),
     categories: getCategories_(),
     tags: getTags_(),
     authors: getAuthors_(),
@@ -666,7 +678,7 @@ function codePointToString_(code) {
  * 種別・カテゴリ・タグも毎回判定させる（Jev があれば Jev を優先し、Gemini の判定は失敗時の予備にする）。
  */
 function buildGeminiAnalyzeRequest_(options) {
-  var kindKeys = APP_CONFIG.kinds.map(function (k) { return k.key; });
+  var kindKeys = getKinds_().map(function (k) { return k.key; });
   var properties = {
     title: { type: 'STRING', description: '投稿のタイトル。30文字以内。【】は付けない' },
     summaryPoints: {
@@ -705,7 +717,7 @@ function buildGeminiAnalyzeRequest_(options) {
     required.push('tags');
   }
 
-  var kindGuide = APP_CONFIG.kinds.map(function (k) { return '- ' + k.key + ': ' + k.description; }).join('\n');
+  var kindGuide = getKinds_().map(function (k) { return '- ' + k.key + ': ' + k.description; }).join('\n');
   var system = [
     'あなたは「' + APP_CONFIG.teamName + '」の支援者向けに、告知や記事を LINE オープンチャットへ投稿する文章の材料を作る編集者です。',
     '入力の内容だけを根拠にし、書かれていないことを補ったり推測で足したりしないでください。',
@@ -820,7 +832,7 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
     summary: Object.prototype.toString.call(json.summaryPoints) === '[object Array]'
       ? joinSummaryPoints_(json.summaryPoints)
       : normalizeSummaryBullets_(str(json.summary)),
-    kind: findByKey_(APP_CONFIG.kinds, kindKey) ? kindKey : '',
+    kind: findByKey_(getKinds_(), kindKey) ? kindKey : '',
     event: {
       date: uncertain ? '' : date(json.eventDate),
       startTime: uncertain ? '' : time(json.startTime),
@@ -1012,7 +1024,7 @@ function buildJevRequest_(apiKey, state, categories, tags) {
     kind: {
       type: 'choice',
       instructions: 'この投稿の種別はどれですか？',
-      criteria: choiceCriteria_(APP_CONFIG.kinds.map(function (k) { return k.label + '（' + k.description + '）'; }))
+      criteria: choiceCriteria_(getKinds_().map(function (k) { return k.label + '（' + k.description + '）'; }))
     }
   };
   if (categories.length) {
@@ -1057,7 +1069,7 @@ function parseJevResponse_(response, categories, tags) {
     var m = answer && typeof answer.choice === 'string' ? answer.choice.match(/^c(\d+)$/) : null;
     return m && list[Number(m[1])] !== undefined ? list[Number(m[1])] : '';
   };
-  var kind = pick(answers.kind, APP_CONFIG.kinds);
+  var kind = pick(answers.kind, getKinds_());
   return {
     kind: kind ? kind.key : '',
     category: pick(answers.category, categories),
@@ -1178,7 +1190,7 @@ function validatePostInput_(body) {
   };
 
   if (!item.title) { throw new Error('タイトルを入力してください'); }
-  if (!findByKey_(APP_CONFIG.kinds, item.kind)) { throw new Error('種別を選んでください'); }
+  if (!findByKey_(getKinds_(), item.kind)) { throw new Error('種別を選んでください'); }
   if (!findByKey_(APP_CONFIG.sources, item.source)) { throw new Error('入力元を選んでください'); }
   if (getCategories_().indexOf(item.category) === -1) { throw new Error('カテゴリを選んでください'); }
   if (item.url && !isValidUrl_(item.url)) { throw new Error('URL の形式が正しくありません'); }
@@ -1223,7 +1235,7 @@ function normalizeTagsInput_(raw) {
 function buildCells_(item, savedAt, id) {
   var cells = {
     savedAt: savedAt,
-    kind: findByKey_(APP_CONFIG.kinds, item.kind).label,
+    kind: findByKey_(getKinds_(), item.kind).label,
     author: item.author,
     source: findByKey_(APP_CONFIG.sources, item.source).label,
     category: item.category,
@@ -1255,7 +1267,7 @@ function rowToItem_(row, cols) {
     }
     return String(v === undefined || v === null ? '' : v);
   };
-  var kind = findByLabel_(APP_CONFIG.kinds, str('kind'));
+  var kind = findByLabel_(getKinds_(), str('kind'));
   var source = findByLabel_(APP_CONFIG.sources, str('source'));
   return {
     id: str('id').trim(),
@@ -1435,7 +1447,7 @@ function handleDelete_(body) {
  * 一覧・検索（action=search）。カテゴリを横断して新しい順に返す。
  *   keyword: タイトル・概略・原文・メモ・タグ・場所・出演者・発信者・トーク本文のどれかに部分一致（大文字小文字を区別しない）
  *   category / kind: 指定したものだけ（空なら全部）
- *   tags: すべてのタグを持つものだけ（AND）
+ *   tags: 選んだタグ。tagMode が 'and' ならすべてを持つもの、それ以外（既定）はどれか1つでも持つもの（OR）
  *   offset: 何件目から（PAGE_SIZE 件ずつ）
  */
 function handleSearch_(body) {
@@ -1443,6 +1455,7 @@ function handleSearch_(body) {
   var category = String(body.category || '').trim();
   var kind = String(body.kind || '').trim();
   var tags = normalizeTagsInput_(body.tags);
+  var matchAll = String(body.tagMode || '').toLowerCase() === 'and';
   var offset = Math.max(0, parseInt(body.offset, 10) || 0);
 
   var entries = readEntries_(openSheet_());
@@ -1453,7 +1466,10 @@ function handleSearch_(body) {
     var item = entries[i].item;
     if (category && item.category !== category) { continue; }
     if (kind && item.kind !== kind) { continue; }
-    if (tags.length && !tags.every(function (t) { return item.tags.indexOf(t) !== -1; })) { continue; }
+    if (tags.length) {
+      var hasTag = function (t) { return item.tags.indexOf(t) !== -1; };
+      if (!(matchAll ? tags.every(hasTag) : tags.some(hasTag))) { continue; }
+    }
     if (keyword) {
       var haystack = [item.title, item.summary, item.original, item.memo, item.tags.join(','), item.place, item.performers, item.author, item.talk]
         .join('\n').toLowerCase();
@@ -1712,7 +1728,7 @@ function handleArchive_() {
  */
 function toPublicItem_(item) {
   var safeUrl = function (u) { return /^https?:\/\/\S+$/i.test(String(u || '')) ? String(u) : ''; };
-  var kind = findByKey_(APP_CONFIG.kinds, item.kind);
+  var kind = findByKey_(getKinds_(), item.kind);
   var source = findByKey_(APP_CONFIG.sources, item.source);
   return {
     savedAt: item.savedAt,
@@ -1745,6 +1761,58 @@ var LIST_DEFS = {
   tag: { property: TAGS_PROPERTY, label: 'タグ', key: 'tags' },
   author: { property: AUTHORS_PROPERTY, label: '発信者の候補', key: 'authors' }
 };
+
+// ---- 種別の管理（組み込み＋画面で追加したもの） ------------------------------
+
+/** 画面で追加した種別（スクリプトプロパティ）。形が不正な要素は無視する */
+function getCustomKinds_() {
+  return (readJsonList_(KINDS_PROPERTY) || []).filter(function (k) {
+    return k && typeof k.key === 'string' && typeof k.label === 'string' && k.key && k.label;
+  });
+}
+
+/**
+ * 種別の一覧 [{key, label, description, schedule, builtin}]。
+ * 組み込み（Config.gs）を先に、画面で追加したものを後に並べる。
+ */
+function getKinds_() {
+  var builtin = APP_CONFIG.kinds.map(function (k) {
+    return { key: k.key, label: k.label, description: k.description, schedule: !!k.schedule, builtin: true };
+  });
+  var custom = getCustomKinds_().map(function (k) {
+    return { key: k.key, label: k.label, description: String(k.description || k.label), schedule: !!k.schedule, builtin: false };
+  });
+  return builtin.concat(custom);
+}
+
+/** 種別を追加する。key は自動で振る（保存時の値ではなく、シートには名前を書く） */
+function handleAddKind_(body) {
+  var label = String(body.label || '').trim();
+  var description = String(body.description || '').trim();
+  if (!label) { throw new Error('種別の名前を入力してください'); }
+  if (label.length > 20) { throw new Error('種別の名前は20文字以内にしてください'); }
+  if (findByLabel_(getKinds_(), label)) { throw new Error('同じ名前の種別がすでにあります: ' + label); }
+  var custom = getCustomKinds_();
+  if (custom.length >= MAX_CUSTOM_KINDS) { throw new Error('追加できる種別は' + MAX_CUSTOM_KINDS + '個までです'); }
+  var key;
+  do {
+    key = 'custom_' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+  } while (findByKey_(getKinds_(), key));
+  custom.push({ key: key, label: label, description: description || label, schedule: body.schedule === true });
+  writeJsonList_(KINDS_PROPERTY, custom);
+  return { ok: true, kinds: getKinds_() };
+}
+
+/** 画面で追加した種別を一覧から外す（組み込みは外せない）。保存済みの行の種別名は残るが、読み込み時は「未選択」になる */
+function handleRemoveKind_(body) {
+  var key = String(body.key || '').trim();
+  if (findByKey_(APP_CONFIG.kinds, key)) { throw new Error('組み込みの種別は削除できません'); }
+  var custom = getCustomKinds_();
+  var rest = custom.filter(function (k) { return k.key !== key; });
+  if (rest.length === custom.length) { throw new Error('存在しない種別です'); }
+  writeJsonList_(KINDS_PROPERTY, rest);
+  return { ok: true, kinds: getKinds_() };
+}
 
 /** カテゴリ一覧。未初期化・壊れていれば Config.gs の初期カテゴリで初期化する */
 function getCategories_() {

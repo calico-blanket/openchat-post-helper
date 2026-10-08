@@ -469,7 +469,38 @@ test('同じ見出しが2つあれば左の列を使い、見出しが空の列�
   assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 18);
 });
 
-test('search: 新しい順・キーワードは原文も対象・カテゴリ/種別/タグ(AND)で絞り込み・50件ずつ', () => {
+test('種別: 画面から追加でき、AI の選択肢・保存・検索・bootstrap に反映される。組み込みは消せない', () => {
+  const env = load();
+  const added = post(env, { action: 'addKind', label: '募集', description: 'ボランティアの募集', schedule: false });
+  assert.strictEqual(added.ok, true);
+  const kind = added.kinds.find((k) => k.label === '募集');
+  assert.ok(kind && kind.key && kind.builtin === false && kind.schedule === false);
+  assert.strictEqual(added.kinds.filter((k) => k.builtin).length, 3);
+  assert.deepStrictEqual(post(env, { action: 'bootstrap' }).config.kinds.map((k) => k.label), ['スケジュール', '記事', '議員活動', '募集']);
+
+  // 保存でき、一覧でも同じ種別で読み戻せる。種別で検索もできる
+  assert.strictEqual(post(env, validPost({ title: '募集の記録', url: '', kind: kind.key })).ok, true);
+  assert.deepStrictEqual(post(env, { action: 'search', kind: kind.key }).items.map((i) => i.title), ['募集の記録']);
+
+  // 重複・空・組み込みの削除は拒否する
+  assert.match(post(env, { action: 'addKind', label: '募集' }).error, /同じ名前/);
+  assert.match(post(env, { action: 'addKind', label: '記事' }).error, /同じ名前/);
+  assert.match(post(env, { action: 'addKind', label: '  ' }).error, /入力してください/);
+  assert.match(post(env, { action: 'removeKind', key: 'article' }).error, /組み込み/);
+  assert.match(post(env, { action: 'removeKind', key: 'nothing' }).error, /存在しない/);
+
+  const removed = post(env, { action: 'removeKind', key: kind.key });
+  assert.deepStrictEqual(removed.kinds.map((k) => k.label), ['スケジュール', '記事', '議員活動']);
+});
+
+test('種別: 日時あり（schedule）で追加した種別は schedule フラグを持つ', () => {
+  const env = load();
+  const added = post(env, { action: 'addKind', label: '講座', schedule: true });
+  assert.strictEqual(added.kinds.find((k) => k.label === '講座').schedule, true);
+  assert.strictEqual(added.kinds.find((k) => k.label === '講座').description, '講座');
+});
+
+test('search: 新しい順・キーワードは原文も対象・カテゴリ/種別/タグで絞り込み・50件ずつ', () => {
   const env = load();
   post(env, { action: 'addTag', name: '街頭' });
   post(env, { action: 'addTag', name: '神戸' });
@@ -479,7 +510,11 @@ test('search: 新しい順・キーワードは原文も対象・カテゴリ/�
   assert.deepStrictEqual(post(env, { action: 'search', keyword: 'abc' }).items.map((i) => i.title), ['古い']);
   assert.deepStrictEqual(post(env, { action: 'search', category: 'イベント' }).items.map((i) => i.title), ['新しい']);
   assert.deepStrictEqual(post(env, { action: 'search', kind: 'article' }).items.map((i) => i.title), ['古い']);
-  assert.deepStrictEqual(post(env, { action: 'search', tags: ['街頭', '神戸'] }).items.map((i) => i.title), ['新しい']);
+  // タグは既定が OR（どれか1つでも持つ）。tagMode 'and' ならすべてを持つものだけ
+  assert.deepStrictEqual(post(env, { action: 'search', tags: ['街頭', '神戸'] }).items.map((i) => i.title), ['新しい', '古い']);
+  assert.deepStrictEqual(post(env, { action: 'search', tags: ['神戸'] }).items.map((i) => i.title), ['新しい']);
+  assert.deepStrictEqual(post(env, { action: 'search', tags: ['街頭', '神戸'], tagMode: 'or' }).items.map((i) => i.title), ['新しい', '古い']);
+  assert.deepStrictEqual(post(env, { action: 'search', tags: ['街頭', '神戸'], tagMode: 'and' }).items.map((i) => i.title), ['新しい']);
   for (let i = 0; i < 55; i++) { post(env, validPost({ url: '', title: 'n' + i })); }
   const page1 = post(env, { action: 'search' });
   assert.strictEqual(page1.items.length, 50);

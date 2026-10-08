@@ -253,6 +253,18 @@
   }
 
   /**
+   * 種別が「スケジュール型」（日時・場所の行を出す型）か。
+   * 設定の kinds にある schedule フラグで決める。設定に無い古い値でも 'schedule' だけは従来どおり扱う。
+   */
+  function isScheduleKind(kindKey, config) {
+    var kinds = (config && config.kinds) || [];
+    for (var i = 0; i < kinds.length; i++) {
+      if (kinds[i].key === kindKey) { return !!kinds[i].schedule; }
+    }
+    return kindKey === 'schedule';
+  }
+
+  /**
    * トーク本体（オープンチャットのトークに貼る文）を組み立てる。
    *   【タイトル】
    *   概略（スケジュール型では載せない）
@@ -273,10 +285,11 @@
     if (title) { head.push('【' + title + '】'); }
     // スケジュール型は「いつ・どこで」を最初に伝えるため概略を載せない（内容はスレッドの原文で読める）
     var summary = String(post.summary || '').trim();
-    if (summary && post.kind !== 'schedule') { head.push(summary); }
+    var withSchedule = isScheduleKind(post.kind, config);
+    if (summary && !withSchedule) { head.push(summary); }
     if (head.length) { blocks.push(head.join('\n')); }
 
-    if (post.kind === 'schedule') {
+    if (withSchedule) {
       var eventLines = buildEventLines(post.event || {}, talk, todayIso);
       if (eventLines.length) { blocks.push(eventLines.join('\n')); }
     }
@@ -832,6 +845,7 @@
     fillTemplate: fillTemplate,
     pickTemplate: pickTemplate,
     stripTitleBrackets: stripTitleBrackets,
+    isScheduleKind: isScheduleKind,
     buildTalkBody: buildTalkBody,
     buildThreadPrefix: buildThreadPrefix,
     splitText: splitText,

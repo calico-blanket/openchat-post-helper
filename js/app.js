@@ -201,6 +201,10 @@
     if (json.categories) { state.boot.categories = json.categories; }
     if (json.tags) { state.boot.tags = json.tags; }
     if (json.authors) { state.boot.authors = json.authors; renderAuthorPicks(); }
+    if (json.kinds) {
+      state.boot.config.kinds = json.kinds;
+      renderKindRadios(currentKindValue());
+    }
     writeStorage(BOOT_CACHE_KEY, state.boot);
     renderSearchFilters();
     renderManageLists();
@@ -446,7 +450,7 @@
       items.push('AI は開催日時がまだ確定していないと判断したため、トークに日時を入れていません' +
         (a.dateNote ? '（原文: ' + a.dateNote + '）' : '') + '。確定したら③の開催日時に入れてください');
     }
-    if (post.kind === 'schedule' && post.event.date) {
+    if (L.isScheduleKind(post.kind, config()) && post.event.date) {
       var uncertain = L.uncertainDateWarning(post.original);
       if (uncertain) { items.push(uncertain); }
     }
@@ -490,7 +494,13 @@
 
   /** 種別によっては使わない欄（開催日時など）を隠す。発信者は記録に残すので常に出す */
   function updateFieldVisibility(post) {
-    $('eventFields').hidden = post.kind !== 'schedule';
+    $('eventFields').hidden = !L.isScheduleKind(post.kind, config());
+  }
+
+  /** いま選ばれている種別のキー（無ければ空） */
+  function currentKindValue() {
+    var checked = document.querySelector('input[name="kind"]:checked');
+    return checked ? checked.value : '';
   }
 
   function renderKindRadios(selected) {
@@ -651,7 +661,7 @@
       if (a.originalFromImage) {
         items.push('スレッドの原文は画像から読み取った文章です。チラシと見比べて確認してください');
       }
-      if (a.analyzed && post.kind === 'schedule' && post.event.date) {
+      if (a.analyzed && L.isScheduleKind(post.kind, config()) && post.event.date) {
         items.push('日時・場所は AI が読み取った値です。必ず原文やチラシと見比べてください');
       }
     }
@@ -935,7 +945,8 @@
         keyword: $('searchKeyword').value.trim(),
         category: $('searchCategory').value,
         kind: $('searchKind').value,
-        tags: Array.prototype.map.call(document.querySelectorAll('input[name="searchTag"]:checked'), function (i) { return i.value; })
+        tags: Array.prototype.map.call(document.querySelectorAll('input[name="searchTag"]:checked'), function (i) { return i.value; }),
+        tagMode: (document.querySelector('input[name="searchTagMode"]:checked') || {}).value === 'and' ? 'and' : 'or'
       };
       state.list.offset = 0;
       state.list.items = [];
@@ -1026,6 +1037,47 @@
     Object.keys(LIST_UI).forEach(function (type) {
       renderManageList($(LIST_UI[type].list), (state.boot && state.boot[LIST_UI[type].key]) || [], type);
     });
+    renderKindManageList();
+  }
+
+  /** 種別の一覧。組み込みは削除できない。追加分だけ削除ボタンを出す */
+  function renderKindManageList() {
+    var container = $('kindManageList');
+    container.textContent = '';
+    (config().kinds || []).forEach(function (k) {
+      var note = (k.schedule ? '日時あり' : '日時なし') + (k.builtin ? '・組み込み' : '');
+      container.appendChild(el('li', {}, [
+        el('span', { className: 'name', text: k.label + '（' + note + '）' }),
+        k.builtin ? null : el('button', {
+          type: 'button', className: 'button danger small', text: '削除',
+          'aria-label': '種別「' + k.label + '」を削除',
+          onClick: function () {
+            if (!window.confirm('種別「' + k.label + '」を一覧から外します（保存済みの投稿は、開くと種別が未選択になります）。よろしいですか？')) { return; }
+            gasCall({ action: 'removeKind', key: k.key }).then(function (json) {
+              updateBootLists(json);
+              announce('種別「' + k.label + '」を外しました');
+              $('kindManageHeading').focus();
+            }).catch(function (err) { alertMessage(err.message); });
+          }
+        })
+      ]));
+    });
+  }
+
+  function addKind() {
+    var label = $('newKindLabel').value.trim();
+    if (!label) { alertMessage('種別の名前を入れてください'); $('newKindLabel').focus(); return; }
+    gasCall({
+      action: 'addKind', label: label,
+      description: $('newKindDescription').value.trim(),
+      schedule: $('newKindSchedule').checked
+    }).then(function (json) {
+      updateBootLists(json);
+      $('newKindLabel').value = '';
+      $('newKindDescription').value = '';
+      $('newKindSchedule').checked = false;
+      announce('種別「' + label + '」を追加しました');
+    }).catch(function (err) { alertMessage(err.message); $('newKindLabel').focus(); });
   }
 
   function renderManageList(container, names, type) {
@@ -1226,6 +1278,7 @@
     $('addCategoryButton').addEventListener('click', function () { addListItem('category'); });
     $('addTagButton').addEventListener('click', function () { addListItem('tag'); });
     $('addAuthorButton').addEventListener('click', function () { addListItem('author'); });
+    $('addKindButton').addEventListener('click', addKind);
     $('syncPublicSheetButton').addEventListener('click', function () {
       var button = $('syncPublicSheetButton');
       setBusy(button, true, '作り直しています…');
