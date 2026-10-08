@@ -317,10 +317,7 @@
     if (place) {
       lines.push(fillTemplate(talk.placeLine || '📍 {place}', { place: place }));
     }
-    var joinUrl = String(event.joinUrl || '').trim();
-    if (joinUrl) {
-      lines.push(fillTemplate(talk.joinLine || '📺 参加: {url}', { url: joinUrl }));
-    }
+    // 参加 URL（オンラインの配信・会議）はトークに出さない（記録とスレッドの原文には残る）
     var performers = String(event.performers || '').trim();
     if (performers) {
       lines.push(fillTemplate(talk.performersLine || '🎤 出演: {performers}', { performers: performers }));
