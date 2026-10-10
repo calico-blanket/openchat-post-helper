@@ -19,7 +19,7 @@
     { key: 'title', label: 'タイトル', firstDir: 'asc' },
     { key: 'event', label: '開催日時', firstDir: 'asc' },
     { key: 'place', label: '場所', sortable: false },
-    { key: 'author', label: '発信者', firstDir: 'asc' }
+    { key: 'author', label: '発信者／出演者', firstDir: 'asc' }
   ];
 
   var state = {

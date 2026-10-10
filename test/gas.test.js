@@ -1406,8 +1406,8 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, count: 2 });
   const tab = env.publicTab();
   assert.deepStrictEqual(Array.from(tab.values[0]), [
-    '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', '開催日時', '場所',
-    '出演者', '申込締切', '参加URL', '申込URL', '元の投稿のURL', 'タグ', 'スレッド詳細（原文）', 'コメント'
+    '登録日時', 'カテゴリ', '発信者／出演者', 'ソース', 'タイトル', '概略', '開催日時', '場所',
+    '出演者', '申込締切', '参加URL', '申込URL', '元の投稿のURL', 'タグ', 'スレッド詳細（原文）', 'コメント', '種別'
   ]);
   const row = Array.from(tab.values[1]);
   const header = Array.from(tab.values[0]);
