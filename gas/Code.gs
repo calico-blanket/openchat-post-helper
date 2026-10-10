@@ -829,9 +829,9 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
     // トーク本体で【】を付けるので、AI が付けてきた外側の【】は外す（中にも【】があるものはそのまま）
     title: str(json.title).replace(/^【([^【】]*)】?$/, '$1').trim(),
     // 要点の配列で返させる（改行の有無に左右されないため）。古い形式の文字列にも対応する
-    summary: Object.prototype.toString.call(json.summaryPoints) === '[object Array]'
+    summary: stripThreadGuide_(Object.prototype.toString.call(json.summaryPoints) === '[object Array]'
       ? joinSummaryPoints_(json.summaryPoints)
-      : normalizeSummaryBullets_(str(json.summary)),
+      : normalizeSummaryBullets_(str(json.summary))),
     kind: findByKey_(getKinds_(), kindKey) ? kindKey : '',
     event: {
       date: uncertain ? '' : date(json.eventDate),
@@ -872,6 +872,23 @@ function normalizeSummaryBullets_(text) {
   return lines.map(function (line) {
     return '・' + line.replace(/^(?:[・\-*•●○■◆▪]|\d+[.)．、])\s*/, '').replace(/。+$/, '');
   }).join('\n');
+}
+
+/**
+ * 概略から、トーク用の結び（「詳細はスレッドにて ➡️」「全文はこちら ⬇️」）を取り除く。
+ * 結びはトーク本体にだけ付けるもの。AI が概略に混ぜてきたときや、手で入ったときのために、保存前にも通す。
+ * その行だけなら行ごと、行の最後に付いていればその部分だけを消す。元から空の行はそのまま残す。
+ */
+function stripThreadGuide_(text) {
+  var tail = /[\s　]*(?:詳細はスレッド(?:にて|で)?|全文はこちら)[\s　]*[➡⬇→↓️]*[\s　]*$/;
+  var out = [];
+  String(text === undefined || text === null ? '' : text).split(/\r?\n/).forEach(function (line) {
+    var stripped = line.replace(tail, '');
+    // 結びだけの行（「・」だけが残る行を含む）は行ごと捨てる
+    if (stripped !== line && !stripped.replace(/^[\s　・]+/, '')) { return; }
+    out.push(stripped);
+  });
+  return out.join('\n');
 }
 
 /**
@@ -1174,7 +1191,7 @@ function validatePostInput_(body) {
     source: str(body.source).trim(),
     category: str(body.category).trim(),
     title: str(body.title).trim(),
-    summary: str(body.summary),
+    summary: stripThreadGuide_(str(body.summary)),
     url: normalizeUrlInput_(body.url),
     original: str(body.original),
     tags: normalizeTagsInput_(body.tags),
@@ -1777,7 +1794,7 @@ function getCustomKinds_() {
  */
 function getKinds_() {
   var builtin = APP_CONFIG.kinds.map(function (k) {
-    return { key: k.key, label: k.label, description: k.description, schedule: !!k.schedule, builtin: true };
+    return { key: k.key, label: k.label, description: k.description, schedule: !!k.schedule || k.key === 'schedule', builtin: true };
   });
   var custom = getCustomKinds_().map(function (k) {
     return { key: k.key, label: k.label, description: String(k.description || k.label), schedule: !!k.schedule, builtin: false };

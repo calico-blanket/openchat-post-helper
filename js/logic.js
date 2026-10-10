@@ -259,7 +259,7 @@
   function isScheduleKind(kindKey, config) {
     var kinds = (config && config.kinds) || [];
     for (var i = 0; i < kinds.length; i++) {
-      if (kinds[i].key === kindKey) { return !!kinds[i].schedule; }
+      if (kinds[i].key === kindKey) { return !!kinds[i].schedule || kindKey === 'schedule'; }
     }
     return kindKey === 'schedule';
   }

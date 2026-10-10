@@ -825,6 +825,21 @@ test('normalizeSummaryBullets_: 行頭の記号を「・」にそろえ、1段�
   assert.strictEqual(n('  \n  '), '');
 });
 
+test('概略: 「詳細はスレッドにて ➡️」などの結びは、analyze の結果にも保存にも残さない（トーク本体にだけ付ける）', () => {
+  const env = load({
+    fetch: () => geminiRes(geminiAnalyze({ summaryPoints: ['生配信を実施', '詳細はスレッドにて ➡️', '初心者歓迎 詳細はスレッドにて➡️'] }))
+  });
+  assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).summary, '・生配信を実施\n・初心者歓迎');
+
+  const saved = post(env, validPost({ url: '', summary: '・要点A\n・要点B\n詳細はスレッドにて ➡️\n・全文はこちら ⬇️' }));
+  assert.strictEqual(saved.ok, true);
+  assert.strictEqual(post(env, { action: 'search' }).items[0].summary, '・要点A\n・要点B');
+  // 本文中の「スレッド」という語は消さない
+  const keep = post(env, validPost({ url: '', title: '別', summary: '・スレッドの使い方を解説' }));
+  assert.strictEqual(keep.ok, true);
+  assert.strictEqual(post(env, { action: 'search' }).items[0].summary, '・スレッドの使い方を解説');
+});
+
 test('analyze: 概略は要点の配列で受け取り、1要点1行の箇条書きにする（要点の中の「・」では分けない）', () => {
   const env = load({
     fetch: () => geminiRes(geminiAnalyze({
