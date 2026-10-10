@@ -133,6 +133,9 @@ test('isScheduleKind / buildTalkBody: 画面で追加した「日時あり」の
   assert.strictEqual(L.isScheduleKind('custom_b', config), false);
   assert.strictEqual(L.isScheduleKind('article', config), false);
   assert.strictEqual(L.isScheduleKind('', config), false);
+  // 「日時あり」の印が届かない古い設定（GAS の Config.gs が古いまま等）でも、schedule は日時の行を出す
+  assert.strictEqual(L.isScheduleKind('schedule', { kinds: [{ key: 'schedule' }, { key: 'article' }] }), true);
+  assert.strictEqual(L.isScheduleKind('article', { kinds: [{ key: 'schedule' }, { key: 'article' }] }), false);
   // 設定に種別の一覧が無い古い状態でも 'schedule' は従来どおり
   assert.strictEqual(L.isScheduleKind('schedule', {}), true);
   const post = { title: 'T', summary: '・要点', kind: 'custom_a', source: 'slack', event: { date: '2026-10-03', startTime: '19:00', endTime: '21:00' } };
