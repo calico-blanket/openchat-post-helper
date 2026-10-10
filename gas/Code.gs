@@ -1487,7 +1487,7 @@ function handleSearch_(body) {
 
 // 公開用シートの列の見出し（Config.gs の publicSheet.columns の key → 見出し）
 var PUBLIC_COLUMN_HEADERS = {
-  savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
+  savedAt: '登録日時', kind: '種別', author: '発信者／出演者', source: 'ソース', category: 'カテゴリ',
   title: 'タイトル', summary: '概略', event: '開催日時', place: '場所', performers: '出演者',
   deadline: '申込締切', joinUrl: '参加URL', applyUrl: '申込URL', url: '元の投稿のURL', tags: 'タグ',
   original: 'スレッド詳細（原文）', comment: 'コメント', talk: 'トーク本文'

@@ -1027,7 +1027,7 @@
       removeNote: '（保存済みの投稿はそのまま残ります）'
     },
     author: {
-      label: '発信者の候補', key: 'authors', add: 'addAuthor', remove: 'removeAuthor', reorder: 'reorderAuthors',
+      label: '発信者／出演者の候補', key: 'authors', add: 'addAuthor', remove: 'removeAuthor', reorder: 'reorderAuthors',
       list: 'authorManageList', heading: 'authorManageHeading', input: 'newAuthor',
       removeNote: ''
     }

@@ -150,8 +150,9 @@ var APP_CONFIG = {
     archiveUrl: 'https://openchat-post-helper.vercel.app/archive.html',
     // 載せる列と並び。使える key: savedAt kind author source category title summary event place
     //   performers deadline joinUrl applyUrl url tags original comment talk
-    columns: ['savedAt', 'kind', 'author', 'source', 'category', 'title', 'summary', 'event', 'place',
-      'performers', 'deadline', 'joinUrl', 'applyUrl', 'url', 'tags', 'original', 'comment']
+    // 種別（kind）は、カテゴリと取り違えられないよう末尾に置く（見せたくなければ、シートで列を非表示にするか、ここから外す）
+    columns: ['savedAt', 'category', 'author', 'source', 'title', 'summary', 'event', 'place',
+      'performers', 'deadline', 'joinUrl', 'applyUrl', 'url', 'tags', 'original', 'comment', 'kind']
   },
 
   // 使用量の概算に使う料金表（2026年10月時点の公式料金。料金改定・為替・モデルの変更に合わせて書き換える）
