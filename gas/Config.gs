@@ -71,7 +71,6 @@ var APP_CONFIG = {
     // 日時行。{relative} は「本日」「明日」（コピーする時点で計算。どちらでもなければ空）
     dateLine: '📅 {relative}{date}{time}',
     placeLine: '📍 {place}',
-    joinLine: '📺 参加: {url}',
     performersLine: '🎤 出演: {performers}',
     deadlineLine: '⏰ 申込締切: {deadline}',
     applyLine: '📝 申込: {url}'

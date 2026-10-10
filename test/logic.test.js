@@ -479,7 +479,7 @@ test('ひな形: Instagram・Threads の出典行と前置き（名前あり・�
 
 // ---- 参加URL・申込URL・会議URLの警告 -----------------------------------
 
-test('buildTalkBody: スケジュール型は参加URLを場所の下、申込URLを申込締切の下に出す', () => {
+test('buildTalkBody: スケジュール型は参加URLをトークに出さず、申込URLは申込締切の下に出す', () => {
   const body = L.buildTalkBody({
     title: '勉強会', summary: '', kind: 'schedule', source: 'slack', author: '',
     event: {
@@ -493,7 +493,6 @@ test('buildTalkBody: スケジュール型は参加URLを場所の下、申込UR
     '',
     '📅 10/24(土) 13:00〜17:00',
     '📍 対面（高崎）＆オンライン',
-    '📺 参加: https://www.youtube.com/live/abc',
     '⏰ 申込締切: 10/20(火)',
     '📝 申込: https://forms.gle/xyz',
     '',
