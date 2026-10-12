@@ -1,5 +1,5 @@
 // ============================================================
-// 公開の一覧ページ（archive.html）の設定
+// 記録の一覧ページ（archive.html）の設定
 //
 //   gasUrl: GAS の Web アプリ URL（https://script.google.com/macros/s/…/exec）。
 //           この URL は秘密ではない（合言葉が必要な操作は、この URL だけではできない）。
