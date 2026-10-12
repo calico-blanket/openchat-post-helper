@@ -736,12 +736,14 @@
     return m ? Number(m[2]) + '/' + Number(m[3]) : String(text || '');
   }
 
-  var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel', 'kindLabel'];
+  var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel'];
 
   /**
    * 記録の一覧に並べる行を作る純粋関数。
    *   options.q        検索のことば（タイトル・本文・原文・発信者・場所などのどれかに含まれる。大文字小文字を区別しない）
    *   options.upcoming true なら、開催日が今日以降のものだけ
+   *   options.category カテゴリ名（空ならすべて。一致するものだけ）
+   *   options.tags     タグ名の配列（空ならすべて）。options.tagMode が 'and' なら全部持つもの、それ以外（'or'）なら1つでも持つもの
    *   options.sortKey  'saved'（登録日）| 'kind' | 'title' | 'event'（開催日）| 'author'
    *   options.dir      'asc' | 'desc'（開催日・登録日などの空の値は、向きにかかわらず最後）
    *   options.today    'YYYY-MM-DD'（日本時間の今日）
@@ -756,7 +758,14 @@
     var dir = opt.dir === 'asc' ? 1 : -1;
     var today = opt.today || '';
 
+    var wantTags = opt.tags || [];
     var filtered = (items || []).filter(function (item) {
+      if (opt.category && item.category !== opt.category) { return false; }
+      if (wantTags.length) {
+        var have = item.tags || [];
+        var hit = wantTags.filter(function (tag) { return have.indexOf(tag) !== -1; }).length;
+        if (opt.tagMode === 'and' ? hit !== wantTags.length : hit === 0) { return false; }
+      }
       if (opt.upcoming) {
         var date = parseEventIso(item.eventIso).date;
         if (!date || date < today) { return false; }
@@ -807,6 +816,28 @@
       });
     });
     return { rows: rows, total: sorted.length, shown: shownItems.length, hasMore: sorted.length > shownItems.length };
+  }
+
+  /**
+   * 絞り込みの選択肢（カテゴリ・タグ）と、記録全体での件数を作る純粋関数。
+   * 件数の多い順、同数なら名前順。空のカテゴリ・タグは除く。
+   * @returns {{ categories: Array<{name: string, count: number}>, tags: Array<{name: string, count: number}> }}
+   */
+  function archiveFacets(items) {
+    var cat = {};
+    var tag = {};
+    (items || []).forEach(function (item) {
+      if (item.category) { cat[item.category] = (cat[item.category] || 0) + 1; }
+      var seen = {};
+      (item.tags || []).forEach(function (t) {
+        if (t && !seen[t]) { seen[t] = true; tag[t] = (tag[t] || 0) + 1; }
+      });
+    });
+    var list = function (map) {
+      return Object.keys(map).map(function (name) { return { name: name, count: map[name] }; })
+        .sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name, 'ja'); });
+    };
+    return { categories: list(cat), tags: list(tag) };
   }
 
   // ---- 使用量の概算の表示 -------------------------------------------
@@ -877,6 +908,7 @@
     archiveEventLabel: archiveEventLabel,
     streamLinkInfo: streamLinkInfo,
     buildArchiveView: buildArchiveView,
+    archiveFacets: archiveFacets,
     moveArrayItem: moveArrayItem,
     normalizeUrl: normalizeUrl,
     isValidUrl: isValidUrl,

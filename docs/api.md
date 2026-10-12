@@ -5,7 +5,8 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 ### 記録の一覧（GET `?action=archive`、合言葉不要）
 
-- スクリプトプロパティ `ARCHIVE_PUBLIC` が `true`（大文字小文字は問わない）のときだけ `{ ok: true, teamName, items }` を返す。それ以外は `{ ok: false, error }`。
+- スクリプトプロパティ `ARCHIVE_PUBLIC` が `true`（大文字小文字は問わない）のときだけ `{ ok: true, teamName, publicSpreadsheetUrl, items }` を返す。それ以外は `{ ok: false, error }`。
+- `publicSpreadsheetUrl`: 公開用スプレッドシートの URL（`PUBLIC_SPREADSHEET_ID` が未設定なら空文字）。
 - `items` は新しい順。各項目は `savedAt` `kind` `kindLabel` `sourceLabel` `category` `title` `summary` `tags` `eventIso` `place` `deadline` `performers` `author` `talk` `original` `url` `joinUrl` `applyUrl` `comment`（スレッドに添えたコメント）だけ（**ID は返さない**）。URL は http(s) のものだけ。
 - 読むだけで、シートを書き換えない（見出しが足りない場合に右端へ見出しを足すことだけはある）。
 

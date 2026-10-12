@@ -39,7 +39,35 @@ a { color: var(--accent); }
 .lead { margin: 0 0 16px; color: var(--muted); }
 
 .controls { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-end; margin-bottom: 16px; }
-.search-field { flex: 1 1 360px; display: flex; flex-direction: column; gap: 4px; }
+.sheet-box { margin: 0 0 16px; }
+.sheet-box a { display: inline-flex; align-items: center; min-height: 44px; }
+
+.search-field { flex: 1 1 100%; display: flex; flex-direction: column; gap: 4px; }
+.filters { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-start; }
+.filter-field { flex: 0 1 280px; min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
+.filter-field label { font-weight: 700; font-size: 0.9rem; }
+.tag-box { flex: 0 1 420px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+/* パソコン幅では、カテゴリの見出し（約27px）の分だけ下げて、入力欄の高さをそろえる */
+@media (min-width: 760px) {
+  .filters > .tag-box, .filters > .check { margin-top: 27px; }
+}
+.tag-box summary { min-height: 44px; display: flex; align-items: center; padding: 0 12px; cursor: pointer; font-weight: 700; font-size: 0.9rem; }
+.tag-body { padding: 4px 12px 12px; display: grid; gap: 8px; }
+.tag-body fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tag-body legend { font-weight: 700; font-size: 0.85rem; padding: 0; }
+.mode-field { display: flex; flex-wrap: wrap; gap: 0 20px; }
+.mode-field legend { flex-basis: 100%; }
+.tag-list { display: flex; flex-wrap: wrap; gap: 0 20px; }
+.tag-item span { overflow-wrap: anywhere; }
+.now-row { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.now-box { flex: 1 1 280px; min-width: 0; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips:empty { display: none; }
+.chip { background: var(--month); border-radius: 999px; padding: 2px 12px; font-size: 0.85rem; overflow-wrap: anywhere; }
+.clear-button {
+  min-height: 44px; padding: 8px 16px; border: 2px solid var(--accent); border-radius: 8px;
+  background: var(--surface); color: var(--accent); font: inherit; font-weight: 700; cursor: pointer;
+}
 .search-field label, .sort-field label { font-weight: 700; font-size: 0.9rem; }
 .sort-field { display: flex; flex-direction: column; gap: 4px; }
 input[type="search"], select {
@@ -48,14 +76,14 @@ input[type="search"], select {
 }
 .check { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 .check input { width: 20px; height: 20px; margin: 0; }
-.status { margin: 0; min-height: 44px; display: flex; align-items: center; color: var(--muted); }
+.status { margin: 0; min-height: 36px; display: flex; align-items: center; color: var(--muted); }
 
 .table-box { background: var(--surface); border: 1px solid #c9d2ce; border-radius: 10px; overflow: hidden; }
 
 /* 列の幅（見出しと行で共通） */
 .list-head, .row-cells {
   display: grid;
-  grid-template-columns: 84px 116px minmax(0, 1fr) 190px 210px 150px;
+  grid-template-columns: 84px minmax(0, 1fr) 190px 210px 150px;
 }
 .list-head { border-bottom: 2px solid var(--text); font-size: 0.85rem; font-weight: 700; }
 .head-button {
@@ -76,10 +104,9 @@ input[type="search"], select {
 .row-cells > span { padding: 8px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-cells .date { color: var(--muted); }
 .row-cells .title { font-weight: 500; }
-.kind-badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; }
 .row-compact { display: none; }
 
-.detail { padding: 12px 20px 20px 212px; background: #f7faf8; border-top: 1px dashed #c9d2ce; display: flex; flex-direction: column; gap: 12px; }
+.detail { padding: 12px 20px 20px 96px; background: #f7faf8; border-top: 1px dashed #c9d2ce; display: flex; flex-direction: column; gap: 12px; }
 .detail h3 { margin: 0; font-size: 0.9rem; }
 .meta { margin: 0; font-size: 0.85rem; color: var(--muted); }
 .text-box { margin: 0; white-space: pre-line; line-height: 1.75; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }

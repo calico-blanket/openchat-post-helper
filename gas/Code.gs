@@ -1739,7 +1739,8 @@ function handleArchive_() {
   for (var i = entries.length - 1; i >= 0; i--) {
     items.push(toPublicItem_(entries[i].item));
   }
-  return { ok: true, teamName: APP_CONFIG.teamName, items: items };
+  // publicSpreadsheetUrl: 公開用スプレッドシートの URL（未設定なら空）。一覧ページの「表として見る」リンクに使う
+  return { ok: true, teamName: APP_CONFIG.teamName, publicSpreadsheetUrl: publicSpreadsheetUrl_(), items: items };
 }
 
 /**
