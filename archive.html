@@ -16,6 +16,7 @@
     <header class="page-header">
       <h1 id="archiveTitle">記録の一覧</h1>
       <p id="archiveDescription" class="lead"></p>
+      <p id="sheetBox" class="sheet-box" hidden><a id="sheetLink" href="#" target="_blank" rel="noopener noreferrer">スプレッドシートで表として見る（新しいタブ）</a></p>
     </header>
 
     <div class="controls">
@@ -23,9 +24,29 @@
         <label for="archiveSearch">検索（タイトル・本文・原文・発信者・場所など）</label>
         <input type="search" id="archiveSearch" autocomplete="off" placeholder="例: 高崎、配信、勉強会">
       </div>
-      <label class="check">
-        <input type="checkbox" id="upcomingOnly"> 開催予定のみ
-      </label>
+      <div class="filters">
+        <div class="filter-field" id="categoryField" hidden>
+          <label for="categorySelect">カテゴリ</label>
+          <select id="categorySelect"></select>
+        </div>
+        <details class="tag-box" id="tagBox" hidden>
+          <summary id="tagSummary">タグで絞り込む</summary>
+          <div class="tag-body">
+            <fieldset class="mode-field">
+              <legend>複数選んだとき</legend>
+              <label class="check"><input type="radio" name="tagMode" value="or" checked> どれか1つでも持つ</label>
+              <label class="check"><input type="radio" name="tagMode" value="and"> すべて持つ</label>
+            </fieldset>
+            <fieldset class="tag-field">
+              <legend>タグ（件数は記録全体での数です）</legend>
+              <div id="tagList" class="tag-list"></div>
+            </fieldset>
+          </div>
+        </details>
+        <label class="check">
+          <input type="checkbox" id="upcomingOnly"> 開催予定のみ
+        </label>
+      </div>
       <div class="sort-field narrow-only">
         <label for="sortSelect">並び順</label>
         <select id="sortSelect">
@@ -34,7 +55,13 @@
           <option value="title:asc">タイトル順</option>
         </select>
       </div>
-      <p id="archiveStatus" class="status" role="status" aria-live="polite">読み込んでいます…</p>
+      <div class="now-row">
+        <div class="now-box" role="status" aria-live="polite">
+          <p id="archiveStatus" class="status">読み込んでいます…</p>
+          <ul id="nowChips" class="chips" aria-label="今の絞り込み条件"></ul>
+        </div>
+        <button type="button" id="clearButton" class="clear-button" hidden>条件をすべて解除</button>
+      </div>
     </div>
 
     <div class="table-box">
@@ -42,7 +69,7 @@
         <!-- 列の見出し（並べ替えのボタン）は js/archive.js で描く -->
       </div>
       <ul id="archiveList" class="archive-list" tabindex="-1" aria-label="記録の一覧"></ul>
-      <p id="emptyMessage" class="empty" hidden>見つかりませんでした。別のことばで探してみてください。</p>
+      <p id="emptyMessage" class="empty" hidden>見つかりませんでした。別のことばで探すか、条件を減らしてください（「条件をすべて解除」で戻せます）。</p>
     </div>
     <div class="more-box">
       <button type="button" id="moreButton" class="more-button" hidden>さらに表示</button>

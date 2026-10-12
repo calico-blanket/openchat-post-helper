@@ -1255,6 +1255,12 @@ test('記録の一覧: 公開してよい項目だけを新しい順に返し、
   assert.ok(!text.includes(TOKEN) && !text.includes('gemini-key'), '合言葉・API キーは出さない');
 });
 
+test('記録の一覧: 公開用スプレッドシートの URL を返す（未設定なら空）', () => {
+  const env = load({ props: { ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'public-sheet-9' } });
+  assert.strictEqual(getArchive(env).publicSpreadsheetUrl, 'https://docs.google.com/spreadsheets/d/public-sheet-9/edit');
+  assert.strictEqual(getArchive(load({ props: { ARCHIVE_PUBLIC: 'true' } })).publicSpreadsheetUrl, '');
+});
+
 test('toPublicItem_: http(s) 以外の URL は空にする', () => {
   const { context } = load();
   const p = context.toPublicItem_({ kind: 'article', source: 'slack', url: 'javascript:alert(1)', joinUrl: 'ftp://x', applyUrl: 'https://ok.example/', tags: [] });

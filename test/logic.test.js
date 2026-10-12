@@ -575,6 +575,48 @@ test('buildArchiveView: 表示件数の上限と「さらに表示」の判定',
   assert.strictEqual(L.buildArchiveView([], {}).total, 0);
 });
 
+const FILTER_ITEMS = [
+  { savedAt: '2026-10-05 10:00:00', title: 'A', category: 'イベント', tags: ['AI', '高崎'], eventIso: '', place: '', author: '', talk: '', original: '' },
+  { savedAt: '2026-10-04 10:00:00', title: 'B', category: 'イベント', tags: ['AI'], eventIso: '', place: '', author: '', talk: '', original: '' },
+  { savedAt: '2026-10-03 10:00:00', title: 'C', category: '活動報告', tags: ['高崎', '街頭'], eventIso: '', place: '', author: '', talk: '', original: '' },
+  { savedAt: '2026-10-02 10:00:00', title: 'D', category: '', tags: [], eventIso: '', place: '', author: '', talk: '', original: '' }
+];
+
+test('buildArchiveView: カテゴリで絞り込む（空なら全部）', () => {
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント' })), ['A', 'B']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: '活動報告' })), ['C']);
+  assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { category: '' }).total, 4);
+  assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { category: '存在しない' }).total, 0);
+});
+
+test('buildArchiveView: タグは初期値が OR（どれか1つでも持つ）、and なら全部持つものだけ', () => {
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI'] })), ['A', 'B']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'] })), ['A', 'B', 'C'], '初期値は OR');
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'], tagMode: 'or' })), ['A', 'B', 'C']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'], tagMode: 'and' })), ['A']);
+  assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { tags: [] }).total, 4, 'タグを選ばなければ全部');
+  assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { tags: ['存在しない'], tagMode: 'and' }).total, 0);
+});
+
+test('buildArchiveView: カテゴリ・タグ・検索・開催予定のみは重ねて（すべて満たすものだけ）効く', () => {
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['高崎'] })), ['A']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['AI'], q: 'ai' })), ['A', 'B']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['AI'], q: '高崎' })), ['A'], '検索も重なる');
+  assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { category: '活動報告', tags: ['AI'] }).total, 0);
+});
+
+test('buildArchiveView: 検索は種別の名前では当たらない（一覧に種別を出さないため）', () => {
+  assert.strictEqual(L.buildArchiveView(ARCHIVE_ITEMS, { q: 'スケジュール' }).total, 0);
+});
+
+test('archiveFacets: カテゴリとタグを件数の多い順（同数は名前順）に数える。空は除く', () => {
+  const f = L.archiveFacets(FILTER_ITEMS);
+  assert.deepStrictEqual(f.categories, [{ name: 'イベント', count: 2 }, { name: '活動報告', count: 1 }]);
+  assert.deepStrictEqual(f.tags, [{ name: 'AI', count: 2 }, { name: '高崎', count: 2 }, { name: '街頭', count: 1 }]);
+  assert.deepStrictEqual(L.archiveFacets([]), { categories: [], tags: [] });
+  assert.deepStrictEqual(L.archiveFacets([{ tags: ['x', 'x', ''] }]).tags, [{ name: 'x', count: 1 }], '同じ記録の重複タグは1回');
+});
+
 test('formatYen・usageSummaryText: 概算の金額と今月の集計の表示', () => {
   assert.strictEqual(L.formatYen(0), '0 円');
   assert.strictEqual(L.formatYen(0.01), '約 0.1 円未満');

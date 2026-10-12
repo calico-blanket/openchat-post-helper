@@ -2,7 +2,7 @@
 // 記録の一覧ページ（archive.html）
 //
 //   GAS の読み取り専用の入口（GET ?action=archive）から記録を読み、
-//   検索・並べ替え・「開催予定のみ」・行の開閉で表示する。合言葉は使わない。
+//   検索・カテゴリ・タグ・並べ替え・「開催予定のみ」・行の開閉で表示する。合言葉は使わない。
 //   絞り込み・並べ替え・月の区切りは js/logic.js の buildArchiveView（テスト済み）に任せる。
 //   外部由来の文字列はすべて textContent で入れ、innerHTML は使わない。
 // ============================================================
@@ -15,7 +15,6 @@
   var PAGE_SIZE = 100;
   var COLUMNS = [
     { key: 'saved', label: '登録日', firstDir: 'desc' },
-    { key: 'kind', label: '種別', firstDir: 'asc' },
     { key: 'title', label: 'タイトル', firstDir: 'asc' },
     { key: 'event', label: '開催日時', firstDir: 'asc' },
     { key: 'place', label: '場所', sortable: false },
@@ -26,6 +25,9 @@
     items: [],
     q: '',
     upcoming: false,
+    category: '',
+    tags: [],
+    tagMode: 'or',
     sortKey: 'saved',
     dir: 'desc',
     limit: PAGE_SIZE,
@@ -116,6 +118,9 @@
     var view = L.buildArchiveView(state.items, {
       q: state.q,
       upcoming: state.upcoming,
+      category: state.category,
+      tags: state.tags,
+      tagMode: state.tagMode,
       sortKey: state.sortKey,
       dir: state.dir,
       today: L.todayIsoInTokyo(new Date()),
@@ -134,6 +139,67 @@
     $('moreButton').hidden = !view.hasMore;
     $('moreButton').textContent = 'さらに表示（残り ' + (view.total - view.shown) + ' 件）';
     setStatus(view.total + ' 件' + (view.hasMore ? '（うち ' + view.shown + ' 件を表示）' : ''));
+    renderConditions();
+  }
+
+  // ---- 絞り込み（カテゴリ・タグ）と、今の条件の表示 ------------------
+
+  /** 今かかっている条件を、短い文の配列にする（検索・カテゴリ・タグ・開催予定のみ） */
+  function conditionTexts() {
+    var parts = [];
+    if (state.q.trim()) { parts.push('検索: ' + state.q.trim()); }
+    if (state.category) { parts.push('カテゴリ: ' + state.category); }
+    if (state.tags.length) {
+      var all = state.tagMode === 'and' && state.tags.length > 1;
+      parts.push('タグ: ' + state.tags.join(all ? '、' : ' または ') + (all ? '（すべて持つ）' : ''));
+    }
+    if (state.upcoming) { parts.push('開催予定のみ'); }
+    return parts;
+  }
+
+  function renderConditions() {
+    var parts = conditionTexts();
+    var chips = $('nowChips');
+    chips.textContent = '';
+    parts.forEach(function (text) { chips.appendChild(el('li', { className: 'chip', text: text })); });
+    $('clearButton').hidden = parts.length === 0;
+    $('tagSummary').textContent = 'タグで絞り込む' + (state.tags.length ? '（' + state.tags.length + 'つ選択中）' : '');
+  }
+
+  /** 記録から、カテゴリとタグの選択肢（件数つき）を作る。無ければその部品は出さない */
+  function buildFilters() {
+    var facets = L.archiveFacets(state.items);
+    var select = $('categorySelect');
+    select.textContent = '';
+    select.appendChild(el('option', { value: '', text: 'すべてのカテゴリ（' + state.items.length + '）' }));
+    facets.categories.forEach(function (c) {
+      select.appendChild(el('option', { value: c.name, text: c.name + '（' + c.count + '）' }));
+    });
+    $('categoryField').hidden = facets.categories.length === 0;
+    var list = $('tagList');
+    list.textContent = '';
+    facets.tags.forEach(function (t) {
+      var box = el('input', { type: 'checkbox', value: t.name, className: 'tag-check' });
+      list.appendChild(el('label', { className: 'check tag-item' }, [box, el('span', { text: t.name + '（' + t.count + '）' })]));
+    });
+    $('tagBox').hidden = facets.tags.length === 0;
+  }
+
+  /** すべての条件（検索・カテゴリ・タグ・開催予定のみ）を初期状態に戻す。並び順はそのまま */
+  function clearConditions() {
+    state.q = '';
+    state.category = '';
+    state.tags = [];
+    state.tagMode = 'or';
+    state.upcoming = false;
+    state.limit = PAGE_SIZE;
+    $('archiveSearch').value = '';
+    $('categorySelect').value = '';
+    $('upcomingOnly').checked = false;
+    document.querySelector('input[name="tagMode"][value="or"]').checked = true;
+    Array.prototype.forEach.call(document.querySelectorAll('.tag-check'), function (box) { box.checked = false; });
+    render();
+    $('archiveSearch').focus();
   }
 
   function renderItem(row) {
@@ -141,7 +207,7 @@
     var open = state.openKey === item._key;
     var detailId = 'detail-' + item._key;
     var marker = open ? '▾ ' : '▸ ';
-    var subParts = [row.savedLabel, item.kindLabel, row.eventLabel, item.place, item.author].filter(Boolean);
+    var subParts = [row.savedLabel, row.eventLabel, item.place, item.author].filter(Boolean);
 
     var button = el('button', {
       type: 'button',
@@ -158,7 +224,6 @@
       // パソコン: 1行に列を並べる
       el('span', { className: 'row-cells' }, [
         el('span', { className: 'date', text: row.savedLabel }),
-        el('span', {}, [item.kindLabel ? el('span', { className: 'kind-badge', text: item.kindLabel }) : null]),
         el('span', { className: 'title', text: marker + item.title }),
         el('span', { text: row.eventLabel || '—' }),
         el('span', { text: item.place || '—' }),
@@ -178,6 +243,7 @@
 
   function renderDetail(item, detailId) {
     var meta = [];
+    if (item.kindLabel) { meta.push('種別: ' + item.kindLabel); }
     if (item.category) { meta.push('カテゴリ: ' + item.category); }
     if (item.sourceLabel) { meta.push('ソース: ' + item.sourceLabel); }
     if (item.tags && item.tags.length) { meta.push('タグ: ' + item.tags.join('、')); }
@@ -274,6 +340,13 @@
 
   // ---- 読み込み -------------------------------------------------
 
+  /** 公開用スプレッドシートへのリンク。Google スプレッドシートの https の URL のときだけ出す */
+  function showSheetLink(url) {
+    if (!/^https:\/\/docs\.google\.com\/spreadsheets\/\S+$/.test(String(url || ''))) { return; }
+    $('sheetLink').setAttribute('href', url);
+    $('sheetBox').hidden = false;
+  }
+
   function load() {
     var url = gasUrl();
     if (!url) {
@@ -290,6 +363,8 @@
       state.items = (json.items || []).map(function (item, index) {
         return Object.assign({ _key: index }, item);
       });
+      showSheetLink(json.publicSpreadsheetUrl);
+      buildFilters();
       openLinkedItem();
       render();
       focusLinkedItem();
@@ -313,6 +388,25 @@
       state.limit = PAGE_SIZE;
       render();
     });
+    $('categorySelect').addEventListener('change', function () {
+      state.category = $('categorySelect').value;
+      state.limit = PAGE_SIZE;
+      render();
+    });
+    $('tagList').addEventListener('change', function () {
+      state.tags = Array.prototype.filter.call(document.querySelectorAll('.tag-check'), function (box) { return box.checked; })
+        .map(function (box) { return box.value; });
+      state.limit = PAGE_SIZE;
+      render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="tagMode"]'), function (radio) {
+      radio.addEventListener('change', function () {
+        state.tagMode = radio.value;
+        state.limit = PAGE_SIZE;
+        render();
+      });
+    });
+    $('clearButton').addEventListener('click', clearConditions);
     $('sortSelect').addEventListener('change', function () {
       var parts = $('sortSelect').value.split(':');
       state.sortKey = parts[0];
