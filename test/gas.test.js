@@ -1212,14 +1212,14 @@ test('bootstrap: 保存先スプレッドシートの URL を返し、合言葉�
   assert.strictEqual(post(noToken, { action: 'bootstrap' }, '').spreadsheetUrl, undefined);
 });
 
-// ---- 公開の一覧（GET ?action=archive） -----------------------------------
+// ---- 記録の一覧（GET ?action=archive） -----------------------------------
 
 /** doGet を ?action=archive で呼ぶ（合言葉なし） */
 function getArchive(env) {
   return JSON.parse(env.context.doGet({ parameter: { action: 'archive' } }).getContent());
 }
 
-test('公開の一覧: ARCHIVE_PUBLIC が "true" でなければ返さない（初期状態は止めておく）', () => {
+test('記録の一覧: ARCHIVE_PUBLIC が "true" でなければ返さない（初期状態は止めておく）', () => {
   const env = load();
   post(env, validPost({ memo: '秘密のメモ' }));
   const r = getArchive(env);
@@ -1230,7 +1230,7 @@ test('公開の一覧: ARCHIVE_PUBLIC が "true" でなければ返さない（�
   assert.strictEqual(getArchive(env2).ok, false, '"true" 以外は止めたまま');
 });
 
-test('公開の一覧: 公開してよい項目だけを新しい順に返し、ID は返さない（コメントは出す。合言葉なし）', () => {
+test('記録の一覧: 公開してよい項目だけを新しい順に返し、ID は返さない（コメントは出す。合言葉なし）', () => {
   const env = load({ props: { ARCHIVE_PUBLIC: 'TRUE' } });
   post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: '秘密のメモ' }));
   post(env, validPost({
@@ -1261,6 +1261,26 @@ test('toPublicItem_: http(s) 以外の URL は空にする', () => {
   assert.strictEqual(p.url, '');
   assert.strictEqual(p.joinUrl, '');
   assert.strictEqual(p.applyUrl, 'https://ok.example/');
+});
+
+test('toPublicItem_: トーク本文から「詳細はスレッドにて ➡️」だけを取り除く（全文はこちらの URL と原文は残す）', () => {
+  const { context } = load();
+  const base = { kind: 'article', source: 'slack', tags: [] };
+  const pub = (talk) => context.toPublicItem_(Object.assign({}, base, { talk })).talk;
+  assert.strictEqual(pub('【勉強会】\n・高崎で開催\n\n詳細はスレッドにて ➡️'), '【勉強会】\n・高崎で開催');
+  assert.strictEqual(pub('【勉強会】\n・高崎で開催\n詳細はスレッドで➡'), '【勉強会】\n・高崎で開催');
+  assert.strictEqual(
+    pub('【勉強会】\n全文はこちら ⬇️\nhttps://example.com/a'),
+    '【勉強会】\n全文はこちら ⬇️\nhttps://example.com/a',
+    '「全文はこちら」とその下の URL は残す'
+  );
+  assert.strictEqual(pub('📅 21:20〜\n📍 高崎'), '📅 21:20〜\n📍 高崎', '結びが無ければ変えない');
+  assert.strictEqual(pub(''), '');
+  assert.strictEqual(
+    context.toPublicItem_(Object.assign({}, base, { original: '原文\n詳細はスレッドにて ➡️' })).original,
+    '原文\n詳細はスレッドにて ➡️',
+    '原文は書き換えない'
+  );
 });
 
 test('doGet: archive 以外の GET は何も返さない／bootstrap は公開の状態を返す', () => {
@@ -1391,7 +1411,7 @@ test('使用量の記録に失敗しても、文章を整える処理は止め�
   assert.ok(r.usage.yen >= 0);
 });
 
-test('公開の一覧に使用量は出ない', () => {
+test('記録の一覧に使用量は出ない', () => {
   const env = load({ props: { ARCHIVE_PUBLIC: 'true' }, fetch: () => geminiResWithUsage(geminiAnalyze(), { promptTokenCount: 100 }) });
   post(env, { action: 'analyze', text: '本文' });
   post(env, validPost());
@@ -1439,7 +1459,7 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   assert.strictEqual(tab.wrap, 'CLIP', '長い文は折り返さず、行の高さをそろえる');
 });
 
-test('公開用シート: タイトルは公開の一覧ページでその投稿を開くリンク（数式の中の文字列は安全にする）', () => {
+test('公開用シート: タイトルは記録の一覧ページでその投稿を開くリンク（数式の中の文字列は安全にする）', () => {
   const env = loadWithPublicSheet();
   post(env, validPost({ url: '', title: '勉強会 "特別回" =1+1' }));
   const tab = env.publicTab();

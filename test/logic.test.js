@@ -510,7 +510,7 @@ test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警
   assert.strictEqual(L.meetingUrlWarning([]), '');
 });
 
-// ---- 公開の一覧（buildArchiveView） -----------------------------------
+// ---- 記録の一覧（buildArchiveView） -----------------------------------
 
 const ARCHIVE_ITEMS = [
   { savedAt: '2026-10-04 13:00:00', kindLabel: '議員活動', title: '国会対策の1年', eventIso: '', place: '', author: '須田', talk: 'トーク', original: '長い原文', tags: ['国会'] },

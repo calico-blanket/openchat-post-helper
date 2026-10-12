@@ -13,7 +13,7 @@
 //     GEMINI_API_KEY    Gemini の API キー（必須）
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
-//     ARCHIVE_PUBLIC    "true" にすると、公開の一覧（archive.html）用の読み取り専用の入口が動く（任意）
+//     ARCHIVE_PUBLIC    "true" にすると、記録の一覧（archive.html）用の読み取り専用の入口が動く（任意）
 //     PUBLIC_SPREADSHEET_ID  公開用スプレッドシートの ID（任意。createPublicSpreadsheet を実行すると自動で入る）
 // ============================================================
 
@@ -68,7 +68,7 @@ var MIN_BODY_CHARS = 40;
 // ---- エントリポイント ------------------------------------------
 
 /**
- * GET は「公開の一覧」（action=archive）だけを受け付ける。合言葉は不要で、読むだけ。
+ * GET は「記録の一覧」（action=archive）だけを受け付ける。合言葉は不要で、読むだけ。
  * それ以外の API は合言葉を URL に載せてログに残さないよう、すべて POST で受ける。
  */
 function doGet(e) {
@@ -878,9 +878,12 @@ function normalizeSummaryBullets_(text) {
  * 概略から、トーク用の結び（「詳細はスレッドにて ➡️」「全文はこちら ⬇️」）を取り除く。
  * 結びはトーク本体にだけ付けるもの。AI が概略に混ぜてきたときや、手で入ったときのために、保存前にも通す。
  * その行だけなら行ごと、行の最後に付いていればその部分だけを消す。元から空の行はそのまま残す。
+ * detailsOnly が true のときは、「詳細はスレッドにて」だけを消す（「全文はこちら ⬇️」とその下の URL は残す）。
  */
-function stripThreadGuide_(text) {
-  var tail = /[\s　]*(?:詳細はスレッド(?:にて|で)?|全文はこちら)[\s　]*[➡⬇→↓️]*[\s　]*$/;
+function stripThreadGuide_(text, detailsOnly) {
+  var tail = detailsOnly
+    ? /[\s　]*詳細はスレッド(?:にて|で)?[\s　]*[➡⬇→↓️]*[\s　]*$/
+    : /[\s　]*(?:詳細はスレッド(?:にて|で)?|全文はこちら)[\s　]*[➡⬇→↓️]*[\s　]*$/;
   var out = [];
   String(text === undefined || text === null ? '' : text).split(/\r?\n/).forEach(function (line) {
     var stripped = line.replace(tail, '');
@@ -1534,7 +1537,7 @@ function sheetEventLabel_(eventIso) {
   return start ? date + ' ' + start[1] + '〜' + (end ? end[1] : '') : date;
 }
 
-/** 公開の一覧ページで、その投稿を開いた状態にするリンク（archiveUrl が無ければ空文字） */
+/** 記録の一覧ページで、その投稿を開いた状態にするリンク（archiveUrl が無ければ空文字） */
 function archiveDetailUrl_(publicItem) {
   var base = String((APP_CONFIG.publicSheet || {}).archiveUrl || '');
   if (!/^https?:\/\/\S+$/i.test(base)) { return ''; }
@@ -1543,7 +1546,7 @@ function archiveDetailUrl_(publicItem) {
 
 /**
  * 公開用シートの1セルの値を作る純粋関数。
- * タイトルは公開の一覧ページへのリンク（HYPERLINK の数式。文字列はダブルクォートを重ねて安全にする）。
+ * タイトルは記録の一覧ページへのリンク（HYPERLINK の数式。文字列はダブルクォートを重ねて安全にする）。
  * それ以外は sanitizeCellText_ で文字列として書く（数式インジェクション対策）。
  */
 function publicCellValue_(key, p) {
@@ -1570,7 +1573,7 @@ function publicSpreadsheetUrl_() {
 
 /**
  * 公開用スプレッドシートの「記録一覧」タブを、登録用のシートの内容で丸ごと書き直す。
- * 載せるのは公開の一覧と同じ「公開してよい項目」から、Config.gs の publicSheet.columns の列だけ（ID は載せない）。
+ * 載せるのは記録の一覧と同じ「公開してよい項目」から、Config.gs の publicSheet.columns の列だけ（ID は載せない）。
  * PUBLIC_SPREADSHEET_ID が未設定なら何もしない。ほかのタブには触らない。
  */
 function syncPublicSheet_() {
@@ -1720,16 +1723,16 @@ function summarizeUsageThisMonth_() {
   return summary;
 }
 
-// ---- 公開の一覧（合言葉なしで読める、読み取り専用） --------------------------
+// ---- 記録の一覧（合言葉なしで読める、読み取り専用） --------------------------
 
 /**
- * 公開の一覧（archive.html）に渡す記録を、新しい順に返す。
+ * 記録の一覧（archive.html）に渡す記録を、新しい順に返す。
  * スクリプトプロパティ ARCHIVE_PUBLIC が "true" のときだけ動く（初期状態は止めておく）。
  * 返すのは公開してよい項目だけ（toPublicItem_ の一覧）。ID は返さない。
  */
 function handleArchive_() {
   if (getProperty_('ARCHIVE_PUBLIC').toLowerCase() !== 'true') {
-    throw new Error('公開の一覧は、いまは公開されていません');
+    throw new Error('記録の一覧は、いまは公開されていません');
   }
   var entries = readEntries_(openSheet_());
   var items = [];
@@ -1741,7 +1744,7 @@ function handleArchive_() {
 
 /**
  * 記録の1件を、公開してよい項目だけのオブジェクトにする純粋関数。
- * ここに無い項目（ID など）は、公開の一覧には出ない。URL は http(s) のものだけ残す。
+ * ここに無い項目（ID など）は、記録の一覧には出ない。URL は http(s) のものだけ残す。
  */
 function toPublicItem_(item) {
   var safeUrl = function (u) { return /^https?:\/\/\S+$/i.test(String(u || '')) ? String(u) : ''; };
@@ -1761,7 +1764,8 @@ function toPublicItem_(item) {
     deadline: item.deadline,
     performers: item.performers,
     author: item.author,
-    talk: item.talk,
+    // 記録の一覧では「詳細はスレッドにて ➡️」は不要（スレッドは別に読める）。末尾に残る空行も落とす
+    talk: stripThreadGuide_(item.talk, true).replace(/\s+$/, ''),
     original: item.original,
     url: safeUrl(item.url),
     joinUrl: safeUrl(item.joinUrl),

@@ -180,7 +180,7 @@ function createGasContext() {
     insertSheet: (name) => { publicSheets[name] = createSheetStub(); publicSheets[name].name = name; return publicSheets[name]; }
   };
   devPublicSheets = publicSheets;
-  // 公開の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
+  // 記録の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
   const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
   const pad = (n) => String(n).padStart(2, '0');
   const context = {
@@ -243,7 +243,7 @@ const server = http.createServer((req, res) => {
   const requestUrl = new URL(req.url, 'http://localhost');
   const urlPath = decodeURIComponent(requestUrl.pathname);
 
-  // 公開の一覧の入口（GET ?action=archive）。合言葉なし
+  // 記録の一覧の入口（GET ?action=archive）。合言葉なし
   // 開発用: 公開用スプレッドシートの「記録一覧」タブの中身を JSON で見る
   if (urlPath === '/mock-public' && req.method === 'GET') {
     const tab = devPublicSheets['記録一覧'];

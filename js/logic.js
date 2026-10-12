@@ -701,9 +701,9 @@
     return 'オンライン会議の URL が入っています（' + hits.join('、') + '）。公開のオープンチャットに載せると、関係のない人が入ってくるおそれがあります。公開してよい URL か確認してください。';
   }
 
-  // ---- 公開の一覧（archive.html） ---------------------------------
+  // ---- 記録の一覧（archive.html） ---------------------------------
 
-  /** 公開の一覧で、開催日時を「10/24(土) 13:00〜17:00」の形にする（無ければ空文字） */
+  /** 記録の一覧で、開催日時を「10/24(土) 13:00〜17:00」の形にする（無ければ空文字） */
   function archiveEventLabel(eventIso) {
     var ev = parseEventIso(eventIso);
     var date = formatDateJa(ev.date);
@@ -720,7 +720,7 @@
   var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel', 'kindLabel'];
 
   /**
-   * 公開の一覧に並べる行を作る純粋関数。
+   * 記録の一覧に並べる行を作る純粋関数。
    *   options.q        検索のことば（タイトル・本文・原文・発信者・場所などのどれかに含まれる。大文字小文字を区別しない）
    *   options.upcoming true なら、開催日が今日以降のものだけ
    *   options.sortKey  'saved'（登録日）| 'kind' | 'title' | 'event'（開催日）| 'author'

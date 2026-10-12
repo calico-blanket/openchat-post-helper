@@ -145,7 +145,7 @@ var APP_CONFIG = {
   //   保存・更新・削除のたびに、このタブを丸ごと書き直す（手で書き換えた内容は消える）。ほかのタブには触らない
   publicSheet: {
     tabName: '記録一覧',
-    // 公開の一覧ページの URL（タイトルのリンク先）。フォークした人は自分のアプリの URL にする
+    // 記録の一覧ページの URL（タイトルのリンク先）。フォークした人は自分のアプリの URL にする
     archiveUrl: 'https://openchat-post-helper.vercel.app/archive.html',
     // 載せる列と並び。使える key: savedAt kind author source category title summary event place
     //   performers deadline joinUrl applyUrl url tags original comment talk

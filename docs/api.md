@@ -1,9 +1,9 @@
 # GAS の API 仕様
 
 GAS の Web アプリ URL に、**すべて POST** で JSON を送ります（`Content-Type: text/plain;charset=utf-8`。GAS は CORS のプリフライトに応答できないため）。
-GET は「公開の一覧」（`?action=archive`）だけを受け付けます。それ以外の API は、合言葉を URL に載せてログに残さないよう、すべて POST です。
+GET は「記録の一覧」（`?action=archive`）だけを受け付けます。それ以外の API は、合言葉を URL に載せてログに残さないよう、すべて POST です。
 
-### 公開の一覧（GET `?action=archive`、合言葉不要）
+### 記録の一覧（GET `?action=archive`、合言葉不要）
 
 - スクリプトプロパティ `ARCHIVE_PUBLIC` が `true`（大文字小文字は問わない）のときだけ `{ ok: true, teamName, items }` を返す。それ以外は `{ ok: false, error }`。
 - `items` は新しい順。各項目は `savedAt` `kind` `kindLabel` `sourceLabel` `category` `title` `summary` `tags` `eventIso` `place` `deadline` `performers` `author` `talk` `original` `url` `joinUrl` `applyUrl` `comment`（スレッドに添えたコメント）だけ（**ID は返さない**）。URL は http(s) のものだけ。
@@ -19,7 +19,7 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（公開の一覧が有効か）、`usageThisMonth`（今月の使用量の概算 `{ month, count, analyzeCount, summarizeCount, yen }`）、`publicSpreadsheetUrl`（公開用スプレッドシートの URL。未設定なら空）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（記録の一覧が有効か）、`usageThisMonth`（今月の使用量の概算 `{ month, count, analyzeCount, summarizeCount, yen }`）、`publicSpreadsheetUrl`（公開用スプレッドシートの URL。未設定なら空）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
 | `summarize` | `text` `length: "half" \| "3lines"` | `summary`、`usage`（今回の使用量の概算） |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
@@ -85,5 +85,5 @@ GET は「公開の一覧」（`?action=archive`）だけを受け付けます�
 - 見出しが見つからない項目は、右端に見出しを足します。同じ見出しが複数あれば左の列を使います。
 - 見出しの文字を変えると別の列とみなすため、見出しは変えないでください。
 
-- 使用量は、別のシート「利用量」に1回1行で記録します（日時・操作・モデル・Gemini入力トークン・Gemini出力トークン・Jev入力トークン・概算（円））。トークン数が読めなかった失敗は記録しません。公開の一覧には出ません。
+- 使用量は、別のシート「利用量」に1回1行で記録します（日時・操作・モデル・Gemini入力トークン・Gemini出力トークン・Jev入力トークン・概算（円））。トークン数が読めなかった失敗は記録しません。記録の一覧には出ません。
 - 空でない値は、先頭にアポストロフィを付けて「文字列」として書き込みます。`=` などで始まる値が数式として動くこと（数式インジェクション）と、日付風の値が自動変換されることを防ぐためです。
