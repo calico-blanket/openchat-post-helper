@@ -205,7 +205,7 @@
       children.push(el('p', { className: 'text-box', text: comment }));
     }
 
-    var links = [safeLink(item.url, '元の投稿・記事'), safeLink(item.joinUrl, '参加'), safeLink(item.applyUrl, '申込')].filter(Boolean);
+    var links = [safeLink(item.url, '元の投稿・記事'), safeLink(item.joinUrl, L.streamLinkInfo(item.joinUrl).label), safeLink(item.applyUrl, '申込')].filter(Boolean);
     if (links.length) { children.push(el('div', { className: 'links' }, links)); }
 
     var original = String(item.original || '');

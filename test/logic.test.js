@@ -501,6 +501,21 @@ test('buildTalkBody: スケジュール型は参加URLをトークに出さず�
   ].join('\n'));
 });
 
+test('streamLinkInfo: リンク先で「YouTube で見る」「オンライン会議に参加する」「配信・会議のページを開く」を切り替える', () => {
+  const t = (url) => L.streamLinkInfo(url);
+  assert.deepStrictEqual(t('https://www.youtube.com/live/abc'), { type: 'youtube', label: 'YouTube で見る' });
+  assert.strictEqual(t('https://youtu.be/abc').type, 'youtube');
+  assert.strictEqual(t('https://m.youtube.com/watch?v=1').type, 'youtube');
+  assert.deepStrictEqual(t('https://us02web.zoom.us/j/123?pwd=x'), { type: 'meeting', label: 'オンライン会議に参加する' });
+  assert.strictEqual(t('https://meet.google.com/abc-defg-hij').type, 'meeting');
+  assert.strictEqual(t('https://teams.microsoft.com/l/meetup-join/1').type, 'meeting');
+  assert.strictEqual(t('https://www.nicovideo.jp/watch/1').label, '配信・会議のページを開く');
+  assert.strictEqual(t('https://example.com/youtube.com/').type, 'other', 'パスに含まれるだけなら YouTube ではない');
+  assert.strictEqual(t('https://notyoutube.com/').type, 'other', '似た名前のドメインは別物');
+  assert.strictEqual(t('').type, 'other');
+  assert.strictEqual(t('これはURLではない').type, 'other');
+});
+
 test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警告し、YouTube などは警告しない', () => {
   assert.match(L.meetingUrlWarning(['https://us02web.zoom.us/j/123?pwd=x']), /オンライン会議の URL/);
   assert.match(L.meetingUrlWarning(['', 'https://meet.google.com/abc-defg-hij']), /meet\.google\.com/);
