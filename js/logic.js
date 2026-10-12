@@ -703,6 +703,25 @@
 
   // ---- 記録の一覧（archive.html） ---------------------------------
 
+  /**
+   * 配信・会議の URL（記録の joinUrl）を、読む人に伝わるリンクの名前にする純粋関数。
+   * 「参加」では YouTube を見せたいだけの場合に合わないため、リンク先で言葉を切り替える。
+   *   YouTube → 「YouTube で見る」／ Zoom・Meet・Teams など → 「オンライン会議に参加する」／ それ以外 → 「配信・会議のページを開く」
+   * @returns {{ type: 'youtube'|'meeting'|'other', label: string }}
+   */
+  function streamLinkInfo(url) {
+    var host = '';
+    try { host = new URL(String(url || '').trim()).hostname.toLowerCase(); } catch (e) { host = ''; }
+    var under = function (domain) { return host === domain || host.slice(-(domain.length + 1)) === '.' + domain; };
+    if (['youtube.com', 'youtu.be', 'youtube-nocookie.com'].some(under)) {
+      return { type: 'youtube', label: 'YouTube で見る' };
+    }
+    if (['zoom.us', 'meet.google.com', 'teams.microsoft.com', 'teams.live.com', 'webex.com', 'whereby.com'].some(under)) {
+      return { type: 'meeting', label: 'オンライン会議に参加する' };
+    }
+    return { type: 'other', label: '配信・会議のページを開く' };
+  }
+
   /** 記録の一覧で、開催日時を「10/24(土) 13:00〜17:00」の形にする（無ければ空文字） */
   function archiveEventLabel(eventIso) {
     var ev = parseEventIso(eventIso);
@@ -856,6 +875,7 @@
     formatYen: formatYen,
     usageSummaryText: usageSummaryText,
     archiveEventLabel: archiveEventLabel,
+    streamLinkInfo: streamLinkInfo,
     buildArchiveView: buildArchiveView,
     moveArrayItem: moveArrayItem,
     normalizeUrl: normalizeUrl,
