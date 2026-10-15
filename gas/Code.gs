@@ -691,8 +691,8 @@ function buildGeminiAnalyzeRequest_(options) {
     endTime: { type: 'STRING', description: '終了時刻。HH:MM（24時間制）。無ければ空文字' },
     attendance: {
       type: 'STRING',
-      enum: ['in_person', 'online', 'hybrid', 'unknown'],
-      description: '開催形式。in_person=対面（現地）のみ、online=オンラインのみ、hybrid=対面とオンラインの両方、unknown=開催の告知でない・書かれていない'
+      enum: ['in_person', 'online', 'hybrid', 'tv', 'unknown'],
+      description: '開催形式。in_person=対面（現地）のみ、online=オンラインのみ、hybrid=対面とオンラインの両方、tv=テレビ番組への出演・テレビ放送（YouTube やオンライン会議の配信はオンライン）、unknown=開催の告知でない・書かれていない'
     },
     area: { type: 'STRING', description: '対面の場合の地名を数文字で（例: 高崎、神戸三宮、渋谷）。会場名・住所・階数は書かない。対面でなければ空文字' },
     deadline: { type: 'STRING', description: '申込締切日。YYYY-MM-DD の絶対日付。無ければ空文字' },
@@ -911,7 +911,7 @@ function joinSummaryPoints_(points) {
 
 /**
  * 開催形式と地名から、トーク用の短い場所の表記を作る純粋関数（書式は Config.gs の placeLabels）。
- *   hybrid + 高崎 → 対面（高崎）＆オンライン ／ online → オンライン ／ in_person + 高崎 → 対面（高崎）
+ *   hybrid + 高崎 → 対面（高崎）＆オンライン ／ online → オンライン ／ tv → テレビ ／ in_person + 高崎 → 対面（高崎）
  *   形式が不明で地名だけあれば地名をそのまま、どちらも無ければ空文字
  */
 function buildPlaceLabel_(attendance, area) {
@@ -923,6 +923,7 @@ function buildPlaceLabel_(attendance, area) {
     return String(template).replace(/\{area\}/g, name);
   };
   if (attendance === 'online') { return labels.online || 'オンライン'; }
+  if (attendance === 'tv') { return labels.tv || 'テレビ'; }
   if (attendance === 'in_person' || attendance === 'hybrid') { return pick(attendance); }
   return name;
 }

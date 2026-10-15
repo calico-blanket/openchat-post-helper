@@ -92,6 +92,7 @@ var APP_CONFIG = {
     in_person: '対面（{area}）',
     in_person_noArea: '対面',
     online: 'オンライン',
+    tv: 'テレビ',
     hybrid: '対面（{area}）＆オンライン',
     hybrid_noArea: '対面＆オンライン'
   },
