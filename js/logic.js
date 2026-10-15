@@ -791,6 +791,13 @@
       if (!x) { return 1; }
       if (!y) { return -1; }
       var c = (sortKey === 'title' || sortKey === 'author' || sortKey === 'kind') ? x.localeCompare(y, 'ja') : (x < y ? -1 : 1);
+      if (sortKey === 'event' && today) {
+        // 「近い順」: 今日以降は近い順（早い順）、そのあとに過去を新しい順。降順はその逆
+        var xUp = x.slice(0, 10) >= today;
+        var yUp = y.slice(0, 10) >= today;
+        if (xUp !== yUp) { return (xUp ? -1 : 1) * dir; }
+        return (xUp ? c : -c) * dir;
+      }
       return c * dir;
     });
 

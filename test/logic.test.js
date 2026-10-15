@@ -566,6 +566,15 @@ test('buildArchiveView: 開催日の近い順では開催日の無いものを�
   assert.deepStrictEqual(titles(desc), ['勉強会', 'ポスティング', '説明会', '国会対策の1年'], '降順でも空は最後');
 });
 
+test('buildArchiveView: 開催日の近い順は、今日以降を早い順、そのあとに過去を新しい順にする', () => {
+  const asc = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'event', dir: 'asc', today: '2026-10-16' });
+  assert.deepStrictEqual(titles(asc), ['勉強会', 'ポスティング', '説明会', '国会対策の1年'], '10/24 が未来、そのあと過去は新しい順');
+  const mid = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'event', dir: 'asc', today: '2026-10-05' });
+  assert.deepStrictEqual(titles(mid), ['ポスティング', '勉強会', '説明会', '国会対策の1年'], '10/12 → 10/24 の順に未来、そのあと過去');
+  const desc = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'event', dir: 'desc', today: '2026-10-05' });
+  assert.deepStrictEqual(titles(desc), ['説明会', '勉強会', 'ポスティング', '国会対策の1年'], '降順は逆（空は最後）');
+});
+
 test('buildArchiveView: 表示件数の上限と「さらに表示」の判定', () => {
   const v = L.buildArchiveView(ARCHIVE_ITEMS, { sortKey: 'saved', dir: 'desc', limit: 3 });
   assert.strictEqual(v.shown, 3);
