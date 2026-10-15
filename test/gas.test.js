@@ -869,6 +869,8 @@ test('analyze: 場所は開催形式と地名から「対面（高崎）＆オ�
     [{ attendance: 'in_person', area: '神戸三宮' }, '対面（神戸三宮）'],
     [{ attendance: 'in_person', area: '' }, '対面'],
     [{ attendance: 'online', area: '高崎' }, 'オンライン'],
+    [{ attendance: 'tv', area: '' }, 'テレビ'],
+    [{ attendance: 'tv', area: '東京' }, 'テレビ'],
     [{ attendance: 'unknown', area: '高崎' }, '高崎'],
     [{ attendance: 'unknown', area: '' }, '']
   ];
@@ -879,7 +881,7 @@ test('analyze: 場所は開催形式と地名から「対面（高崎）＆オ�
   const env = load({ fetch: () => geminiRes(geminiAnalyze()) });
   post(env, { action: 'analyze', text: '本文' });
   const schema = JSON.parse(env.calls[0].payload).generationConfig.responseSchema;
-  assert.deepStrictEqual(Array.from(schema.properties.attendance.enum), ['in_person', 'online', 'hybrid', 'unknown']);
+  assert.deepStrictEqual(Array.from(schema.properties.attendance.enum), ['in_person', 'online', 'hybrid', 'tv', 'unknown']);
   assert.strictEqual(schema.properties.place, undefined);
 });
 

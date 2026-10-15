@@ -62,7 +62,7 @@ function fakeGeminiAnalyze(payload) {
     eventDate: start ? start[1] : (isEvent ? tokyoDate(1) : ''),
     startTime: start ? start[2] : (isEvent ? '19:00' : ''),
     endTime: end ? end[1] : '',
-    attendance: !isEvent ? 'unknown' : (hybrid ? 'hybrid' : 'in_person'),
+    attendance: !isEvent ? 'unknown' : (/テレビ/.test(text) ? 'tv' : (hybrid ? 'hybrid' : 'in_person')),
     area: isEvent ? (area || '神戸駅前') : '',
     // 本文の URL のうち、配信らしいものを参加 URL、フォームらしいものを申込 URL として返す
     joinUrl: (text.match(/https?:\/\/[^\s]*(youtube|youtu\.be|zoom\.us)[^\s]*/) || [''])[0],
