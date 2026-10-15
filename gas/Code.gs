@@ -329,6 +329,13 @@ function handleAnalyze_(body) {
 
   // 参加 URL・申込 URL は、原文（または画像の読み取り結果）に実際にある URL だけを残す
   var urlSourceText = [result.originalText, result.imageText].join('\n');
+
+  // AI がテレビ出演をオンライン（または不明）と判定しても、原文にテレビ局・番組の手がかりがあれば「テレビ」にする
+  var attendance = result.event.attendance;
+  delete result.event.attendance;
+  if ((attendance === 'online' || attendance === 'unknown') && mentionsTv_([result.title, urlSourceText].join('\n'))) {
+    result.event.place = buildPlaceLabel_('tv', '');
+  }
   [['joinUrl', '参加 URL'], ['applyUrl', '申込 URL']].forEach(function (pair) {
     var proposed = result.event[pair[0]];
     if (!proposed) { return; }
@@ -727,6 +734,7 @@ function buildGeminiAnalyzeRequest_(options) {
     '概略（summaryPoints）は要点を1つずつ配列にし、簡潔に書きます。各要点はできるだけ体言止めにし（例: 「配信を行います。」ではなく「生配信を実施」）、です・ます体は使わず、文末の「。」も付けません。あいさつや前置きは省きます。出典（「Slackからの転載です」等）や「詳細はスレッドにて」は書かないでください。',
     '参加 URL（joinUrl）と申込 URL（applyUrl）は、本文に書かれている URL をそのまま書き写してください。本文に無い URL を作ったり推測したりしないでください。',
     '開催場所は、開催形式（attendance）と、対面の場合の短い地名（area）に分けてください。会場名や住所はスレッドの原文に残るので、area には書きません。',
+    'テレビ番組への出演・テレビでの放送（BS・地上波を含む。例: 「BS-TBS 報道1930 出演」）は、オンラインではなく attendance を tv にしてください。YouTube やオンライン会議の配信だけの場合は online です。',
     '種別の定義:\n' + kindGuide
   ].join('\n');
 
@@ -838,6 +846,7 @@ function parseGeminiAnalyzeResponse_(response, categories, tags) {
       startTime: uncertain ? '' : time(json.startTime),
       endTime: uncertain ? '' : time(json.endTime),
       place: buildPlaceLabel_(str(json.attendance), str(json.area)) || str(json.place),
+      attendance: str(json.attendance),
       deadline: date(json.deadline),
       // 原文に https:// なしで書かれた URL（meet.google.com/… など）も受け取る
       joinUrl: isValidUrl_(normalizeUrlInput_(json.joinUrl)) ? normalizeUrlInput_(json.joinUrl) : '',
@@ -926,6 +935,14 @@ function buildPlaceLabel_(attendance, area) {
   if (attendance === 'tv') { return labels.tv || 'テレビ'; }
   if (attendance === 'in_person' || attendance === 'hybrid') { return pick(attendance); }
   return name;
+}
+
+/**
+ * 文章に、テレビ出演・放送の手がかり（「テレビ」「地上波」「BS-TBS」「日テレ」など）があるかを返す純粋関数。
+ * 「BS」は英字に続くもの（ABS など）を除く。
+ */
+function mentionsTv_(text) {
+  return /テレビ|地上波|日テレ|テレ朝|テレ東|TBS|(?:^|[^A-Za-z])BS[-‐‑ー\s]?(?:朝日|フジ|\d)/.test(String(text || ''));
 }
 
 /**

@@ -550,6 +550,19 @@ function geminiAnalyze(overrides = {}) {
   }, overrides);
 }
 
+test('analyze: AI がテレビ出演をオンラインと判定しても、原文にテレビ局の手がかりがあれば「テレビ」にする', () => {
+  const run = (text, extra) => {
+    const env = load({ fetch: () => geminiRes(geminiAnalyze(Object.assign({ attendance: 'online', area: '', title: '番組出演' }, extra))) });
+    return post(env, { action: 'analyze', text }).event.place;
+  };
+  assert.strictEqual(run('安野貴博党首 BS-TBS「報道1930」出演（19:30〜）'), 'テレビ');
+  assert.strictEqual(run('今夜、地上波の番組に出演します'), 'テレビ');
+  assert.strictEqual(run('テレビ出演のお知らせ', { attendance: 'unknown' }), 'テレビ');
+  assert.strictEqual(run('YouTube で配信します'), 'オンライン', '手がかりが無ければそのまま');
+  assert.strictEqual(run('ABS 勉強会をオンラインで開催'), 'オンライン', '英字に続く BS は対象外');
+  assert.strictEqual(run('テレビ局の見学会（現地）', { attendance: 'in_person', area: '東京' }), '対面（東京）', '対面は変えない');
+});
+
 test('analyze: Slack の URL だけなら、通信せず（Gemini も呼ばず）貼り付けを促す', () => {
   const env = load();
   const r = post(env, { action: 'analyze', url: 'https://team.slack.com/archives/C1/p123' });
