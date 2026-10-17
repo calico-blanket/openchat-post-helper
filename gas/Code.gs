@@ -41,13 +41,13 @@ var SHEET_NAME = '投稿一覧';
 // 新しくシートを作るときの並び順
 var FIELD_ORDER = [
   'savedAt', 'kind', 'author', 'source', 'category', 'title', 'summary', 'url', 'original', 'tags',
-  'eventIso', 'place', 'deadline', 'performers', 'memo', 'id', 'talk', 'joinUrl', 'applyUrl'
+  'eventIso', 'place', 'deadline', 'performers', 'memo', 'id', 'talk', 'joinUrl', 'applyUrl', 'postedAt'
 ];
 var FIELD_HEADERS = {
   savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
   title: 'タイトル', summary: '概略', url: 'URL', original: 'スレッド詳細（原文）', tags: 'タグ',
   eventIso: '開催日時（ISO）', place: '場所', deadline: '申込締切', performers: '出演者', memo: 'コメント',
-  id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL'
+  id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL', postedAt: '発信日'
 };
 var HEADER = FIELD_ORDER.map(function (key) { return FIELD_HEADERS[key]; });
 // 以前の見出し（見つかったら今の見出しに書き換える）。memo は、スレッドに添えるコメントの列
@@ -220,6 +220,7 @@ function handleAnalyze_(body) {
 
   // 追跡用のパラメーターなどを取り除いた URL を、表示・保存・重複チェックに使う
   var cleanedUrl = cleanUrl_(fetched.resolvedUrl || input.url);
+  var postedAt = derivePostedAt_(cleanedUrl, warnings);
   var source = input.source ||
     detectSourceFromUrl_(cleanedUrl) ||
     (input.image ? 'flyer' : 'other');
@@ -229,6 +230,7 @@ function handleAnalyze_(body) {
     ok: true,
     source: source,
     resolvedUrl: cleanedUrl,
+    postedAt: postedAt,
     fetchStatus: fetched.status,
     author: fetched.author || '',
     originalText: original,
@@ -993,6 +995,113 @@ function isValidIsoDate_(text) {
   return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
 }
 
+// ---- 発信日（元の投稿の日付） ------------------------------------
+
+// X の ID（Snowflake）の起点（2010-11-04）。これより小さい ID は連番で、日付を含まない
+var X_EPOCH_MS = 1288834974657;
+var X_SNOWFLAKE_MIN_ID = '29700859247';
+// Instagram・Threads の投稿の番号の起点（2011-08-24）
+var INSTAGRAM_EPOCH_MS = 1314220021721;
+var INSTAGRAM_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** ミリ秒（UTC の時刻）を、日本時間の 'YYYY-MM-DD' にする純粋関数。範囲外なら空文字 */
+function msToJstDate_(ms) {
+  var min = Date.UTC(2005, 0, 1);
+  var max = Date.now() + 24 * 60 * 60 * 1000;
+  if (typeof ms !== 'number' || !isFinite(ms) || ms < min || ms > max) { return ''; }
+  return new Date(ms + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * 投稿の URL に含まれる番号から、発信日（日本時間の 'YYYY-MM-DD'）を計算する純粋関数。通信はしない。
+ *   X: 投稿の番号（ID）に時刻が入っている ／ Instagram・Threads: 投稿の短い英数字に時刻が入っている
+ *   Slack: メッセージのリンクの p＋数字（秒＋マイクロ秒）
+ * 分からなければ空文字。
+ */
+function postedDateFromUrl_(url) {
+  var text = String(url || '');
+  var m = text.match(/^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/[^/?#]+\/status(?:es)?\/(\d{1,19})/i);
+  if (m) {
+    var id = BigInt(m[1]);
+    if (id < BigInt(X_SNOWFLAKE_MIN_ID)) { return ''; }
+    return msToJstDate_(Number((id >> BigInt(22)) + BigInt(X_EPOCH_MS)));
+  }
+
+  m = text.match(/^https?:\/\/(?:www\.)?(?:instagram\.com|threads\.(?:net|com))\/(?:[^/?#]+\/)?(?:p|reel|reels|tv|post)\/([A-Za-z0-9_-]{6,11})(?:[/?#]|$)/i);
+  if (m) {
+    var value = BigInt(0);
+    for (var i = 0; i < m[1].length; i++) {
+      value = value * BigInt(64) + BigInt(INSTAGRAM_CODE_CHARS.indexOf(m[1].charAt(i)));
+    }
+    return msToJstDate_(Number((value >> BigInt(23)) + BigInt(INSTAGRAM_EPOCH_MS)));
+  }
+
+  m = text.match(/^https?:\/\/(?:[^/?#]+\.)?slack\.com\/archives\/[A-Za-z0-9]+\/p(\d{16})(?:[/?#]|$)/i);
+  if (m) { return msToJstDate_(Number(m[1].slice(0, 10)) * 1000); }
+  return '';
+}
+
+/** YouTube の URL から動画の ID（11文字）を取り出す純粋関数。YouTube でなければ空文字 */
+function youtubeVideoId_(url) {
+  var m = String(url || '').match(/^https?:\/\/([^/?#]+)([^#]*)/i);
+  if (!m) { return ''; }
+  var host = m[1].toLowerCase().replace(/^www\./, '').replace(/^m\./, '').replace(/^music\./, '');
+  var rest = m[2];
+  var id = null;
+  if (host === 'youtu.be') {
+    id = rest.match(/^\/([A-Za-z0-9_-]{11})(?:[/?]|$)/);
+  } else if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+    id = rest.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})(?:[/?]|$)/) ||
+      rest.match(/^\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})(?:&|$)/);
+  }
+  return id ? id[1] : '';
+}
+
+/**
+ * YouTube Data API（videos.list。1回 1 単位。1日の上限は初期値で 10,000 単位）で、動画の公開日を取る。
+ * キー（スクリプトプロパティ YOUTUBE_API_KEY）が無ければ何もしない。失敗しても例外は投げず、note で知らせる。
+ * @returns {{ date: string, note: string }}
+ */
+function fetchYoutubePostedDate_(videoId) {
+  var key = getProperty_('YOUTUBE_API_KEY');
+  if (!key || !videoId) { return { date: '', note: '' }; }
+  try {
+    var response = UrlFetchApp.fetch(
+      'https://www.googleapis.com/youtube/v3/videos?part=snippet&id=' + encodeURIComponent(videoId) +
+      '&key=' + encodeURIComponent(key),
+      { muteHttpExceptions: true }
+    );
+    var code = response.getResponseCode();
+    if (code !== 200) {
+      return { date: '', note: 'YouTube の発信日を取得できませんでした（HTTP ' + code + '）。入力欄に手で入れられます' };
+    }
+    var items = JSON.parse(response.getContentText()).items || [];
+    var published = items.length && items[0].snippet ? String(items[0].snippet.publishedAt || '') : '';
+    if (!published) {
+      return { date: '', note: 'YouTube の動画が見つからないか、非公開のため、発信日を取得できませんでした' };
+    }
+    var date = msToJstDate_(Date.parse(published));
+    return { date: date, note: date ? '' : 'YouTube の発信日の形式を読み取れませんでした' };
+  } catch (err) {
+    return { date: '', note: 'YouTube の発信日を取得できませんでした（' + String((err && err.message) || err) + '）' };
+  }
+}
+
+/** URL から発信日を求める。失敗しても analyze 全体は止めない（空文字を返し、必要なら warnings に足す） */
+function derivePostedAt_(url, warnings) {
+  try {
+    var date = postedDateFromUrl_(url);
+    if (date) { return date; }
+    var videoId = youtubeVideoId_(url);
+    if (!videoId) { return ''; }
+    var result = fetchYoutubePostedDate_(videoId);
+    if (result.note) { warnings.push(result.note); }
+    return result.date;
+  } catch (err) {
+    return '';
+  }
+}
+
 // ---- summarize（要約ボタン） --------------------------------------
 
 var SUMMARY_LENGTH_GUIDES = {
@@ -1224,7 +1333,8 @@ function validatePostInput_(body) {
     author: str(body.author).trim(),
     talk: str(body.talk),
     joinUrl: normalizeUrlInput_(body.joinUrl),
-    applyUrl: normalizeUrlInput_(body.applyUrl)
+    applyUrl: normalizeUrlInput_(body.applyUrl),
+    postedAt: str(body.postedAt).trim()
   };
 
   if (!item.title) { throw new Error('タイトルを入力してください'); }
@@ -1242,6 +1352,9 @@ function validatePostInput_(body) {
   }
   if (item.deadline && !isValidIsoDate_(item.deadline)) {
     throw new Error('申込締切の日付が正しくありません: ' + item.deadline);
+  }
+  if (item.postedAt && !isValidIsoDate_(item.postedAt)) {
+    throw new Error('発信日の日付が正しくありません: ' + item.postedAt);
   }
 
   var allowedTags = getTags_().concat(APP_CONFIG.legislators || []);
@@ -1290,7 +1403,8 @@ function buildCells_(item, savedAt, id) {
     id: id,
     talk: item.talk,
     joinUrl: item.joinUrl,
-    applyUrl: item.applyUrl
+    applyUrl: item.applyUrl,
+    postedAt: item.postedAt
   };
   Object.keys(cells).forEach(function (key) { cells[key] = sanitizeCellText_(cells[key]); });
   return cells;
@@ -1326,7 +1440,9 @@ function rowToItem_(row, cols) {
     author: str('author'),
     talk: str('talk'),
     joinUrl: str('joinUrl'),
-    applyUrl: str('applyUrl')
+    applyUrl: str('applyUrl'),
+    // 手でシートに日付を入れると Date になり「yyyy-MM-dd HH:mm:ss」に直されるので、日付の部分だけ使う。読めなければ空
+    postedAt: (function (v) { return isValidIsoDate_(v) ? v : ''; })(str('postedAt').trim().slice(0, 10))
   };
 }
 
@@ -1525,7 +1641,7 @@ function handleSearch_(body) {
 
 // 公開用シートの列の見出し（Config.gs の publicSheet.columns の key → 見出し）
 var PUBLIC_COLUMN_HEADERS = {
-  savedAt: '登録日時', kind: '種別', author: '発信者／出演者', source: 'ソース', category: 'カテゴリ',
+  savedAt: '登録日時', postedAt: '発信日', kind: '種別', author: '発信者／出演者', source: 'ソース', category: 'カテゴリ',
   title: 'タイトル', summary: '概略', event: '開催日時', place: '場所', performers: '出演者',
   deadline: '申込締切', joinUrl: '参加URL', applyUrl: '申込URL', url: '元の投稿のURL', tags: 'タグ',
   original: 'スレッド詳細（原文）', comment: 'コメント', talk: 'トーク本文'
@@ -1576,7 +1692,7 @@ function publicCellValue_(key, p) {
     return sanitizeCellText_(p.title);
   }
   var values = {
-    kind: p.kindLabel, source: p.sourceLabel, event: sheetEventLabel_(p.eventIso),
+    kind: p.kindLabel, source: p.sourceLabel, event: sheetEventLabel_(p.eventIso), postedAt: sheetDateLabel_(p.postedAt),
     deadline: sheetDateLabel_(p.deadline), tags: (p.tags || []).join('、')
   };
   var value = Object.prototype.hasOwnProperty.call(values, key) ? values[key] : p[key];
@@ -1771,6 +1887,7 @@ function toPublicItem_(item) {
   var source = findByKey_(APP_CONFIG.sources, item.source);
   return {
     savedAt: item.savedAt,
+    postedAt: item.postedAt,
     kind: item.kind,
     kindLabel: kind ? kind.label : '',
     sourceLabel: source ? source.label : '',

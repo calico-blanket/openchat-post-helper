@@ -305,7 +305,7 @@ test('save: 1行1件で、見出しの名前どおりの列に書き込む（新
   assert.deepStrictEqual(Array.from(env.sheet().values[0]), [
     '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
     'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'コメント', 'ID',
-    'トーク本文', '参加URL', '申込URL'
+    'トーク本文', '参加URL', '申込URL', '発信日'
   ]);
   assert.strictEqual(cell(env, 1, '種別'), 'スケジュール');
   assert.strictEqual(cell(env, 1, '発信者'), '運営アカウント');
@@ -414,7 +414,7 @@ test('既存のシート（以前の15列の並び）には、足りない見出
   assert.strictEqual(item.title, '古い行');
   assert.strictEqual(item.source, 'note');
   assert.strictEqual(item.author, '');
-  assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL']);
+  assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL', '発信日']);
 
   assert.strictEqual(post(env, validPost({ url: '', title: '新しい行', author: '運営アカウント', talk: 'トーク' })).ok, true);
   assert.strictEqual(cell(env, 2, 'タイトル'), '新しい行');
@@ -429,7 +429,7 @@ test('列を並べ替えても、自分で足した列がどこにあっても�
   // 発信者を2列目へ移し、4列目に自分の列「投稿済み」を足したシートを再現する
   const header = ['登録日時', '発信者', '種別', '投稿済み', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
     'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
-    'トーク本文', '参加URL', '申込URL'];
+    'トーク本文', '参加URL', '申込URL', '発信日'];
   env.sheet().values.length = 0;
   env.sheet().raw.length = 0;
   env.sheet().values.push(header.slice());
@@ -466,7 +466,7 @@ test('同じ見出しが2つあれば左の列を使い、見出しが空の列�
   assert.strictEqual(ctx.cols.title, 1);
   // 足りない項目は右端（5列目以降）に足される
   assert.strictEqual(ctx.cols.savedAt, 5);
-  assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 18);
+  assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 19);
 });
 
 test('種別: 画面から追加でき、AI の選択肢・保存・検索・bootstrap に反映される。組み込みは消せない', () => {
@@ -1259,7 +1259,7 @@ test('記録の一覧: 公開してよい項目だけを新しい順に返し、
   const item = r.items[0];
   assert.deepStrictEqual(Object.keys(item).sort(), [
     'applyUrl', 'author', 'category', 'comment', 'deadline', 'eventIso', 'joinUrl', 'kind', 'kindLabel', 'original',
-    'performers', 'place', 'savedAt', 'sourceLabel', 'summary', 'tags', 'talk', 'title', 'url'
+    'performers', 'place', 'postedAt', 'savedAt', 'sourceLabel', 'summary', 'tags', 'talk', 'title', 'url'
   ]);
   assert.strictEqual(item.kindLabel, 'スケジュール');
   assert.strictEqual(item.sourceLabel, 'note');
@@ -1462,7 +1462,7 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, count: 2 });
   const tab = env.publicTab();
   assert.deepStrictEqual(Array.from(tab.values[0]), [
-    '登録日時', 'カテゴリ', '発信者／出演者', 'ソース', 'タイトル', '概略', '開催日時', '場所',
+    '登録日時', '発信日', 'カテゴリ', '発信者／出演者', 'ソース', 'タイトル', '概略', '開催日時', '場所',
     '出演者', '申込締切', '参加URL', '申込URL', '元の投稿のURL', 'タグ', 'スレッド詳細（原文）', 'コメント', '種別'
   ]);
   const row = Array.from(tab.values[1]);
@@ -1631,4 +1631,150 @@ test('summarize: Gemini が 503 なら、1回だけやり直す', () => {
   const r = post(env, { action: 'summarize', text: '原文', length: '3lines' });
   assert.strictEqual(r.summary, '要約した文');
   assert.strictEqual(geminiCalls, 2);
+});
+
+// ---- 発信日（元の投稿の日付） --------------------------------------
+
+/** Instagram・Threads の短い英数字を、指定した時刻（ミリ秒）から作る（postedDateFromUrl_ の逆の計算） */
+function instagramCodeAt(ms) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let value = (BigInt(ms) - 1314220021721n) << 23n;
+  let code = '';
+  while (value > 0n) { code = chars[Number(value % 64n)] + code; value /= 64n; }
+  return code;
+}
+
+test('postedDateFromUrl_: X・Slack・Instagram・Threads の URL から、日本時間の発信日を計算する', () => {
+  const { context } = load();
+  const f = (u) => context.postedDateFromUrl_(u);
+  // X: 実在の投稿（2022-10-28 03:49 UTC ＝ 日本時間も 10/28）。twitter.com・x.com・mobile・クエリ付きも同じ
+  assert.strictEqual(f('https://x.com/elonmusk/status/1585841080431321088'), '2022-10-28');
+  assert.strictEqual(f('https://twitter.com/elonmusk/status/1585841080431321088?s=20'), '2022-10-28');
+  assert.strictEqual(f('https://mobile.twitter.com/i/status/1585841080431321088'), '2022-10-28');
+  // 日本時間に直す: UTC の 2026-10-02 20:00 は日本時間の 10/3
+  const ms = Date.UTC(2026, 9, 2, 20, 0, 0);
+  const tweetId = ((BigInt(ms) - 1288834974657n) << 22n).toString();
+  assert.strictEqual(f('https://x.com/a/status/' + tweetId), '2026-10-03');
+  // 日付を含まない古い連番の ID・数字でない ID は空
+  assert.strictEqual(f('https://x.com/jack/status/20'), '');
+  assert.strictEqual(f('https://x.com/jack/status/abc'), '');
+  // Slack: p + 秒（10桁）+ マイクロ秒（6桁）。2026-10-02 20:00:00 UTC ＝ 日本時間 10/3
+  assert.strictEqual(f('https://example.slack.com/archives/C0123ABCD/p' + (ms / 1000) + '123456'), '2026-10-03');
+  assert.strictEqual(f('https://example.slack.com/archives/C0123ABCD'), '');
+  // Instagram・Threads（短い英数字は、時刻から逆算して作った値。実在の投稿での確認は人が行う）
+  const code = instagramCodeAt(Date.UTC(2025, 5, 10, 3, 0, 0));
+  assert.strictEqual(f('https://www.instagram.com/p/' + code + '/'), '2025-06-10');
+  assert.strictEqual(f('https://www.instagram.com/reel/' + code + '/?igsh=xx'), '2025-06-10');
+  assert.strictEqual(f('https://www.threads.net/@user/post/' + code), '2025-06-10');
+  assert.strictEqual(f('https://www.threads.com/@user/post/' + code), '2025-06-10');
+  assert.strictEqual(f('https://www.instagram.com/user/'), '');
+  // 範囲外（遠い未来など）や関係のない URL は空
+  assert.strictEqual(f('https://x.com/a/status/9223372036854775807'), '');
+  assert.strictEqual(f('https://example.com/a'), '');
+  assert.strictEqual(f(''), '');
+});
+
+test('youtubeVideoId_: YouTube の各種 URL から動画の ID（11文字）を取り出す', () => {
+  const { context } = load();
+  const f = (u) => context.youtubeVideoId_(u);
+  const id = 'dQw4w9WgXcQ';
+  assert.strictEqual(f('https://www.youtube.com/watch?v=' + id), id);
+  assert.strictEqual(f('https://www.youtube.com/watch?feature=share&v=' + id + '&t=30s'), id);
+  assert.strictEqual(f('https://m.youtube.com/watch?v=' + id), id);
+  assert.strictEqual(f('https://youtu.be/' + id + '?si=abc'), id);
+  assert.strictEqual(f('https://www.youtube.com/live/' + id + '?feature=share'), id);
+  assert.strictEqual(f('https://www.youtube.com/shorts/' + id), id);
+  assert.strictEqual(f('https://www.youtube.com/embed/' + id), id);
+  assert.strictEqual(f('https://www.youtube.com/@channel'), '');
+  assert.strictEqual(f('https://www.youtube.com/watch?v=short'), '');
+  assert.strictEqual(f('https://example.com/watch?v=' + id), '');
+  assert.strictEqual(f('https://notyoutube.com/watch?v=' + id), '');
+});
+
+/** analyze 用の偽の通信。YouTube Data API には youtube を、ページ取得には空の HTML を、Gemini には既定の結果を返す */
+function youtubeEnv(youtube, props) {
+  const apiCalls = [];
+  const env = load({
+    props,
+    fetch: (url) => {
+      if (url.indexOf('googleapis.com/youtube/v3/videos') !== -1) { apiCalls.push(url); return youtube(url); }
+      if (url.indexOf('generativelanguage') !== -1) { return geminiRes(geminiAnalyze()); }
+      return res(200, '<html><head><title>動画</title></head><body>本文</body></html>');
+    }
+  });
+  env.apiCalls = apiCalls;
+  return env;
+}
+
+test('analyze: Slack の URL からは発信日を入れる（通信なし）', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze()) });
+  const r = post(env, { action: 'analyze', url: 'https://example.slack.com/archives/C0123ABCD/p1790971200123456', text: '本文' });
+  assert.strictEqual(r.postedAt, '2026-10-03');
+});
+
+test('analyze: YouTube の URL は YouTube Data API で公開日を取り、日本時間の日付にする（キーは URL の key= で送る）', () => {
+  const env = youtubeEnv(() => res(200, { items: [{ snippet: { publishedAt: '2026-10-02T20:30:00Z' } }] }), { YOUTUBE_API_KEY: 'yt-key' });
+  const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+  assert.strictEqual(r.postedAt, '2026-10-03');
+  assert.strictEqual(env.apiCalls.length, 1);
+  assert.match(env.apiCalls[0], /id=dQw4w9WgXcQ/);
+  assert.match(env.apiCalls[0], /key=yt-key/);
+  assert.ok(!Array.from(r.warnings).some((w) => /YouTube/.test(w)), 'YouTube の警告は出さない');
+});
+
+test('analyze: YOUTUBE_API_KEY が無ければ YouTube の API を呼ばず、発信日は空で警告も出さない', () => {
+  const env = youtubeEnv(() => { throw new Error('呼ばれないはず'); });
+  const r = post(env, { action: 'analyze', url: 'https://youtu.be/dQw4w9WgXcQ' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.postedAt, '');
+  assert.strictEqual(env.apiCalls.length, 0);
+  assert.ok(!Array.from(r.warnings).some((w) => /YouTube/.test(w)), 'YouTube の警告は出さない');
+});
+
+test('analyze: YouTube の API が失敗・動画なしでも analyze は成功し、発信日を空にして警告する', () => {
+  const cases = [
+    [() => res(403, { error: { errors: [{ reason: 'quotaExceeded' }] } }), /HTTP 403/],
+    [() => res(200, { items: [] }), /見つからないか、非公開/],
+    [() => { throw new Error('通信エラー'); }, /通信エラー/]
+  ];
+  for (const [api, pattern] of cases) {
+    const env = youtubeEnv(api, { YOUTUBE_API_KEY: 'yt-key' });
+    const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.postedAt, '');
+    assert.ok(Array.from(r.warnings).some((w) => pattern.test(w)), String(pattern));
+    assert.ok(!JSON.stringify(r).includes('yt-key'), 'API キーを返さない');
+  }
+});
+
+test('保存・更新・検索: 発信日を保存して読み戻し、不正な日付は断る。空のままの古い記録も読める', () => {
+  const env = load();
+  const saved = post(env, validPost({ postedAt: '2026-10-03' }));
+  assert.strictEqual(saved.ok, true, saved.error);
+  assert.strictEqual(cell(env, 1, '発信日'), '2026-10-03');
+  assert.strictEqual(cell(env, 1, '発信日', true).charAt(0), "'");
+  assert.strictEqual(post(env, { action: 'search' }).items[0].postedAt, '2026-10-03');
+
+  assert.match(post(env, validPost({ postedAt: '2026-02-30' })).error, /発信日/);
+  assert.match(post(env, validPost({ postedAt: '昨日' })).error, /発信日/);
+
+  assert.strictEqual(post(env, validPost({ action: 'update', id: saved.id, postedAt: '' })).ok, true);
+  assert.strictEqual(post(env, { action: 'search' }).items[0].postedAt, '');
+  // 発信日を送らない保存（古い画面）も通り、空になる
+  const old = validPost({ url: 'https://example.com/old' });
+  delete old.postedAt;
+  assert.strictEqual(post(env, old).ok, true);
+});
+
+test('記録の一覧と公開用シート: 発信日を公開項目として返し、シートには「2026/10/3(土)」の形で載せる', () => {
+  const env = load({ props: { ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'public-sheet-1' } });
+  const file = env.makeFile('public-sheet-1');
+  const saved = post(env, validPost({ postedAt: '2026-10-03' }));
+  assert.strictEqual(saved.ok, true, saved.error);
+  const archive = JSON.parse(env.context.doGet({ parameter: { action: 'archive' } }).getContent());
+  assert.strictEqual(archive.items[0].postedAt, '2026-10-03');
+  const tab = file.getSheetByName('記録一覧');
+  const header = Array.from(tab.values[0]);
+  assert.ok(header.includes('発信日'), header.join(','));
+  assert.strictEqual(tab.values[1][header.indexOf('発信日')], '2026/10/3(土)');
 });
