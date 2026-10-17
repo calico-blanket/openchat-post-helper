@@ -232,7 +232,11 @@
       // スマホ: 2行に詰める
       el('span', { className: 'row-compact' }, [
         el('span', { className: 'title', text: marker + item.title }),
-        el('span', { className: 'sub', text: subParts.join('・') })
+        el('span', { className: 'sub' }, [
+          // 入力元（X・Slack など）を、文字の札で先頭に出す。色だけに頼らない
+          item.sourceLabel ? el('span', { className: 'source-badge', text: item.sourceLabel }) : null,
+          el('span', { className: 'sub-text', text: subParts.join('・') })
+        ])
       ])
     ]);
 
