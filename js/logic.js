@@ -736,6 +736,18 @@
     return m ? Number(m[2]) + '/' + Number(m[3]) : String(text || '');
   }
 
+  /**
+   * 記録の一覧の行に出す日付の札を作る純粋関数。発信日があれば「発信 10/3」、無ければ登録日の「登録 10/18」。
+   * 発信日の年が登録日の年と違うときは、年も出す（「発信 2024/3/5」）。
+   */
+  function archiveDateLabel(postedAt, savedAt) {
+    var p = String(postedAt || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!p) { return '登録 ' + shortDateLabel(savedAt); }
+    var s = String(savedAt || '').match(/^(\d{4})/);
+    var withYear = !s || s[1] !== p[1];
+    return '発信 ' + (withYear ? p[1] + '/' : '') + Number(p[2]) + '/' + Number(p[3]);
+  }
+
   var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel'];
 
   /**
@@ -819,6 +831,7 @@
         type: 'item',
         item: item,
         savedLabel: shortDateLabel(item.savedAt),
+        dateLabel: archiveDateLabel(item.postedAt, item.savedAt),
         eventLabel: archiveEventLabel(item.eventIso)
       });
     });
@@ -916,6 +929,7 @@
     streamLinkInfo: streamLinkInfo,
     buildArchiveView: buildArchiveView,
     archiveFacets: archiveFacets,
+    archiveDateLabel: archiveDateLabel,
     moveArrayItem: moveArrayItem,
     normalizeUrl: normalizeUrl,
     isValidUrl: isValidUrl,

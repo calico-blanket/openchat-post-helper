@@ -14,7 +14,7 @@
   var CONFIG = window.ARCHIVE_CONFIG || {};
   var PAGE_SIZE = 100;
   var COLUMNS = [
-    { key: 'saved', label: '登録日', firstDir: 'desc' },
+    { key: 'saved', label: '日付（登録日順）', firstDir: 'desc' },
     { key: 'title', label: 'タイトル', firstDir: 'asc' },
     { key: 'event', label: '開催日時', firstDir: 'asc' },
     { key: 'place', label: '場所', sortable: false },
@@ -207,7 +207,7 @@
     var open = state.openKey === item._key;
     var detailId = 'detail-' + item._key;
     var marker = open ? '▾ ' : '▸ ';
-    var subParts = [row.savedLabel, row.eventLabel, item.place, item.author].filter(Boolean);
+    var subParts = [row.dateLabel, row.eventLabel, item.place, item.author].filter(Boolean);
 
     var button = el('button', {
       type: 'button',
@@ -223,7 +223,7 @@
     }, [
       // パソコン: 1行に列を並べる
       el('span', { className: 'row-cells' }, [
-        el('span', { className: 'date', text: row.savedLabel }),
+        el('span', { className: 'date', text: row.dateLabel }),
         el('span', { className: 'title', text: marker + item.title }),
         el('span', { text: row.eventLabel || '—' }),
         el('span', { text: item.place || '—' }),
@@ -247,6 +247,8 @@
 
   function renderDetail(item, detailId) {
     var meta = [];
+    if (item.postedAt) { meta.push('発信日: ' + (L.formatDateJa(item.postedAt) || item.postedAt)); }
+    if (item.savedAt) { meta.push('登録日: ' + String(item.savedAt).slice(0, 10)); }
     if (item.kindLabel) { meta.push('種別: ' + item.kindLabel); }
     if (item.category) { meta.push('カテゴリ: ' + item.category); }
     if (item.sourceLabel) { meta.push('ソース: ' + item.sourceLabel); }

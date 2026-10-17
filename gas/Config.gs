@@ -148,10 +148,10 @@ var APP_CONFIG = {
     tabName: '記録一覧',
     // 記録の一覧ページの URL（タイトルのリンク先）。フォークした人は自分のアプリの URL にする
     archiveUrl: 'https://openchat-post-helper.vercel.app/archive.html',
-    // 載せる列と並び。使える key: savedAt kind author source category title summary event place
+    // 載せる列と並び。使える key: savedAt postedAt kind author source category title summary event place
     //   performers deadline joinUrl applyUrl url tags original comment talk
     // 種別（kind）は、カテゴリと取り違えられないよう末尾に置く（見せたくなければ、シートで列を非表示にするか、ここから外す）
-    columns: ['savedAt', 'category', 'author', 'source', 'title', 'summary', 'event', 'place',
+    columns: ['savedAt', 'postedAt', 'category', 'author', 'source', 'title', 'summary', 'event', 'place',
       'performers', 'deadline', 'joinUrl', 'applyUrl', 'url', 'tags', 'original', 'comment', 'kind']
   },
 

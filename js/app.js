@@ -333,7 +333,7 @@
     var source = $('inputSource').value || L.detectSource(url) || (state.image ? 'flyer' : 'other');
     openResult({
       id: '', kind: '', source: source, author: '', category: '', title: '', summary: '',
-      url: url, original: $('inputText').value, tags: [], memo: '', talk: '',
+      url: url, postedAt: '', original: $('inputText').value, tags: [], memo: '', talk: '',
       event: { date: '', startTime: '', endTime: '', place: '', performers: '', deadline: '' }
     }, null);
     announce('手で入力できます。タイトル・種別・カテゴリを入れてください');
@@ -352,6 +352,7 @@
       title: r.title || '',
       summary: r.summary || '',
       url: r.resolvedUrl || '',
+      postedAt: r.postedAt || '',
       original: r.originalText || '',
       tags: tags.filter(function (t, i) { return tags.indexOf(t) === i; }),
       memo: '',
@@ -372,6 +373,7 @@
       title: item.title,
       summary: item.summary,
       url: item.url,
+      postedAt: item.postedAt || '',
       original: item.original,
       tags: item.tags || [],
       memo: item.memo,
@@ -411,6 +413,7 @@
     $('fJoinUrl').value = L.normalizeUrl(post.event.joinUrl);
     $('fApplyUrl').value = L.normalizeUrl(post.event.applyUrl);
     $('fUrl').value = L.normalizeUrl(post.url);
+    $('fPostedAt').value = post.postedAt || '';
     // 保存済みのトーク本文があれば、それをそのまま使う（作り直さない）
     state.talkEdited = !!post.talk;
     $('fTalk').value = post.talk || '';
@@ -554,6 +557,7 @@
       title: $('fTitle').value.trim(),
       summary: $('fSummary').value.trim(),
       url: L.normalizeUrl($('fUrl').value),
+      postedAt: $('fPostedAt').value,
       original: $('fOriginal').value,
       talk: $('fTalk').value,
       useThread: $('fUseThread').checked,
@@ -848,6 +852,7 @@
       title: post.title,
       summary: post.summary,
       url: post.url,
+      postedAt: post.postedAt,
       // スレッドを使わず URL で誘導する投稿は、全文が URL 先にあるので原文を保存しない（note の長文など）
       original: (post.useThread || !String(post.url || '').trim()) ? post.original : '',
       tags: post.tags,

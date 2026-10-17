@@ -7,7 +7,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 - スクリプトプロパティ `ARCHIVE_PUBLIC` が `true`（大文字小文字は問わない）のときだけ `{ ok: true, teamName, publicSpreadsheetUrl, items }` を返す。それ以外は `{ ok: false, error }`。
 - `publicSpreadsheetUrl`: 公開用スプレッドシートの URL（`PUBLIC_SPREADSHEET_ID` が未設定なら空文字）。
-- `items` は新しい順。各項目は `savedAt` `kind` `kindLabel` `sourceLabel` `category` `title` `summary` `tags` `eventIso` `place` `deadline` `performers` `author` `talk` `original` `url` `joinUrl` `applyUrl` `comment`（スレッドに添えたコメント）だけ（**ID は返さない**）。URL は http(s) のものだけ。
+- `items` は新しい順。各項目は `savedAt` `postedAt`（発信日。空も可）`kind` `kindLabel` `sourceLabel` `category` `title` `summary` `tags` `eventIso` `place` `deadline` `performers` `author` `talk` `original` `url` `joinUrl` `applyUrl` `comment`（スレッドに添えたコメント）だけ（**ID は返さない**）。URL は http(s) のものだけ。
 - 読むだけで、シートを書き換えない（見出しが足りない場合に右端へ見出しを足すことだけはある）。
 
 ## 共通
@@ -43,6 +43,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 |---|---|
 | `source` | 入力元（指定がなければ URL から推定。画像だけなら `flyer`） |
 | `resolvedUrl` | 短縮 URL などを解決し、追跡用パラメーターを取り除いた URL（Amazon は `/dp/商品番号` の形） |
+| `postedAt` | 発信日（日本時間の `YYYY-MM-DD`。分からなければ空）。X・Instagram・Threads・Slack は URL の番号から計算し、YouTube は `YOUTUBE_API_KEY` があれば YouTube Data API（`videos.list`、1 単位）で公開日を取る。取得に失敗しても analyze は成功し、YouTube の失敗は `warnings` に出す |
 | `fetchStatus` | `ok`（取得できた）／`needs_paste`（本文の貼り付けが必要）／`none`（URL なし） |
 | `author` | X・note の発信者名 |
 | `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章 |
@@ -60,10 +61,11 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 ### 投稿データ（save / update）
 
-`kind` `source` `category` `title` `summary` `url` `original` `tags: []` `eventIso` `place` `deadline` `performers` `memo` `author` `talk` `joinUrl` `applyUrl`
+`kind` `source` `category` `title` `summary` `url` `original` `tags: []` `eventIso` `place` `deadline` `performers` `memo` `author` `talk` `joinUrl` `applyUrl` `postedAt`
 
 - `eventIso`: `2026-10-03`、`2026-10-03T19:00+09:00`、`2026-10-03T19:00+09:00/2026-10-03T21:00+09:00` のいずれか（空も可）
 - `deadline`: `YYYY-MM-DD`（空も可）
+- `postedAt`: 発信日。`YYYY-MM-DD`（空も可。存在しない日付は拒否）。送らなければ空として保存する
 - `source`: `slack` `x` `instagram` `threads` `line` `note` `legislator` `flyer` `other`（`Config.gs` の `sources`）
 - `original`: 画面で「スレッドにも投稿する」を外し、URL がある投稿は空で送る（全文は URL 先にあるため保存しない）
 - 重複チェックは、追跡用パラメーターを取り除いた URL どうしで比べる（twitter.com と x.com、threads.net と threads.com も同じとみなす）
@@ -77,7 +79,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 シート名「投稿一覧」。1 行 1 件。**列は1行目の見出しの名前で読み書きし、列の位置には依存しません。** 新しく作るシートの並びは次のとおりです。
 
-登録日時／種別／発信者／ソース／カテゴリ／タイトル／概略／URL（元の投稿・記事）／スレッド詳細（原文）／タグ／開催日時（ISO）／場所／申込締切／出演者／コメント／ID／トーク本文／参加URL／申込URL
+登録日時／種別／発信者／ソース／カテゴリ／タイトル／概略／URL（元の投稿・記事）／スレッド詳細（原文）／タグ／開催日時（ISO）／場所／申込締切／出演者／コメント／ID／トーク本文／参加URL／申込URL／発信日
 
 - 「コメント」は、スレッドの最後に添えるコメント（保存時の項目名は `memo`）。以前の見出し「メモ」は、自動で「コメント」に書き換える。
 - `save` `update` `delete` の結果には `publicSheet`（公開用スプレッドシートの書き直しの結果 `{ ok, count }`、失敗なら `{ ok: false, error }`、未設定なら `{ ok: true, skipped: true }`）が付く。書き直しに失敗しても保存は成功する。
