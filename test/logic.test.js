@@ -695,3 +695,23 @@ test('countEmojiNames: 取り除く数と同じ数を返す', () => {
   assert.strictEqual(L.stripEmojiNames(text).count, 4);
   assert.strictEqual(L.countEmojiNames(''), 0);
 });
+
+test('archiveDateLabel: 発信日があれば「発信」、無ければ「登録」の札をつける。年が登録日と違うときだけ年も出す', () => {
+  assert.strictEqual(L.archiveDateLabel('2026-10-03', '2026-10-18 09:00:00'), '発信 10/3');
+  assert.strictEqual(L.archiveDateLabel('2024-03-05', '2026-10-18 09:00:00'), '発信 2024/3/5');
+  assert.strictEqual(L.archiveDateLabel('', '2026-10-18 09:00:00'), '登録 10/18');
+  assert.strictEqual(L.archiveDateLabel(undefined, '2026-10-18 09:00:00'), '登録 10/18');
+  // 形式が不正な発信日は使わない
+  assert.strictEqual(L.archiveDateLabel('昨日', '2026-10-18 09:00:00'), '登録 10/18');
+});
+
+test('buildArchiveView: 行の日付は発信日を優先し、並びと月の区切りは登録日のまま', () => {
+  const items = [
+    { title: 'A', savedAt: '2026-10-18 10:00:00', postedAt: '2026-09-30' },
+    { title: 'B', savedAt: '2026-10-17 10:00:00' }
+  ];
+  const v = L.buildArchiveView(items, { sortKey: 'saved', dir: 'desc', today: '2026-10-18' });
+  const rows = v.rows.filter((r) => r.type === 'item');
+  assert.deepStrictEqual(rows.map((r) => [r.item.title, r.dateLabel]), [['A', '発信 9/30'], ['B', '登録 10/17']]);
+  assert.strictEqual(v.rows[0].label, '2026年10月');
+});

@@ -104,6 +104,9 @@ function fakeFetch(url, params) {
       html: '<blockquote><p lang="ja">明日19時から神戸駅前で街頭演説を行います。<br>日時: 明日 19:00〜<br>ぜひお越しください！</p>&mdash; 山田太郎</blockquote>'
     });
   }
+  if (url.startsWith('https://www.googleapis.com/youtube/v3/videos')) {
+    return fakeResponse(200, { items: [{ snippet: { publishedAt: '2026-09-20T03:00:00Z' } }] });
+  }
   if (url.startsWith('https://note.com/api/v3/notes/')) {
     return fakeResponse(200, { data: {
       name: 'noteの記事タイトル',
@@ -181,7 +184,7 @@ function createGasContext() {
   };
   devPublicSheets = publicSheets;
   // 記録の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
-  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
+  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', YOUTUBE_API_KEY: 'fake-youtube-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
   const pad = (n) => String(n).padStart(2, '0');
   const context = {
     SpreadsheetApp: {
