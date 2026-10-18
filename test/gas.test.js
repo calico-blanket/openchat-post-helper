@@ -1780,10 +1780,10 @@ test('記録の一覧と公開用シート: 発信日を公開項目として返
 });
 
 test('analyze: YouTube の URL で AI がテレビと判定しても、原文にテレビ局などの手がかりが無ければ「オンライン」にする', () => {
-  const run = (url, text, attendance = 'tv') => {
+  const run = (url, text, attendance = 'tv', title = '番組出演') => {
     const env = load({
       fetch: (u) => {
-        if (u.indexOf('generativelanguage') !== -1) { return geminiRes(geminiAnalyze({ attendance, area: '', title: '番組出演' })); }
+        if (u.indexOf('generativelanguage') !== -1) { return geminiRes(geminiAnalyze({ attendance, area: '', title })); }
         return res(200, '<html><head><title>動画</title></head><body>本文</body></html>');
       }
     });
@@ -1791,11 +1791,16 @@ test('analyze: YouTube の URL で AI がテレビと判定しても、原文に
   };
   const youtube = 'https://m.youtube.com/watch?v=MJk8JDTUoGE';
   assert.strictEqual(run(youtube, '番組初のゲストとして出演しました'), 'オンライン');
-  // 原文にテレビの手がかりがあれば、そのまま「テレビ」
-  assert.strictEqual(run(youtube, 'BS-TBS「報道1930」に出演した際の映像です'), 'テレビ');
-  assert.strictEqual(run(youtube, 'テレビ出演の様子です'), 'テレビ');
-  // YouTube 以外の URL・URL なしは、AI の判定（テレビ）のまま
+  // 説明欄に制作会社名（TBS）や「TBSテレビ入社」などが入っていても、タイトルに手がかりが無ければ「オンライン」
+  const description = '番組初のゲストとして出演。TBS CROSS DIG with Bloomberg\n中川雅博 2025年1月にTBSテレビ入社 #tbs';
+  assert.strictEqual(run(youtube, description, 'tv', 'AI QUEST：安野さんに聞く'), 'オンライン');
+  // タイトルにテレビの手がかりがあれば、そのまま「テレビ」。AI がオンラインと判定していても「テレビ」にする
+  assert.strictEqual(run(youtube, '映像です', 'tv', 'BS-TBS「報道1930」に出演'), 'テレビ');
+  assert.strictEqual(run(youtube, '映像です', 'online', 'テレビ出演の様子'), 'テレビ');
+  assert.strictEqual(run(youtube, 'テレビ出演の様子です', 'online', '出演の様子'), 'オンライン', 'YouTube は原文だけの手がかりでは変えない');
+  // YouTube 以外の URL・URL なしは、AI の判定（テレビ）のまま。原文の手がかりでオンラインをテレビにする補正も、従来どおり
   assert.strictEqual(run('https://example.com/a', '番組初のゲストとして出演しました'), 'テレビ');
+  assert.strictEqual(run('https://example.com/a', 'TBS の番組です', 'online'), 'テレビ');
   assert.strictEqual(run('', '番組初のゲストとして出演しました'), 'テレビ');
 });
 

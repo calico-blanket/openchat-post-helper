@@ -335,12 +335,13 @@ function handleAnalyze_(body) {
   // AI がテレビ出演をオンライン（または不明）と判定しても、原文にテレビ局・番組の手がかりがあれば「テレビ」にする
   var attendance = result.event.attendance;
   delete result.event.attendance;
-  var tvClue = mentionsTv_([result.title, urlSourceText].join('\n'));
+  // 元の URL が YouTube のときは、説明欄に制作会社名（TBS など）が入るだけでテレビ放送とは限らないため、
+  // 手がかりはタイトルだけで見る。AI が「番組への出演」からテレビと誤判定した YouTube の番組・配信は、オンラインにする
+  var isYoutube = !!youtubeVideoId_(cleanedUrl);
+  var tvClue = mentionsTv_(isYoutube ? result.title : [result.title, urlSourceText].join('\n'));
   if ((attendance === 'online' || attendance === 'unknown') && tvClue) {
     result.event.place = buildPlaceLabel_('tv', '');
-  } else if (attendance === 'tv' && youtubeVideoId_(cleanedUrl) && !tvClue) {
-    // YouTube の番組・配信を、AI が「番組への出演」からテレビと誤判定することがある。
-    // 元の URL が YouTube で、タイトル・原文にテレビ局などの手がかりが無ければ、オンラインにする
+  } else if (attendance === 'tv' && isYoutube && !tvClue) {
     result.event.place = buildPlaceLabel_('online', '');
   }
   [['joinUrl', '参加 URL'], ['applyUrl', '申込 URL']].forEach(function (pair) {
