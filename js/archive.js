@@ -14,7 +14,7 @@
   var CONFIG = window.ARCHIVE_CONFIG || {};
   var PAGE_SIZE = 100;
   var COLUMNS = [
-    { key: 'saved', label: '日付（登録日順）', firstDir: 'desc' },
+    { key: 'posted', label: '発信日', firstDir: 'desc' },
     { key: 'title', label: 'タイトル', firstDir: 'asc' },
     { key: 'event', label: '開催日時', firstDir: 'asc' },
     { key: 'place', label: '場所', sortable: false },
@@ -207,7 +207,7 @@
     var open = state.openKey === item._key;
     var detailId = 'detail-' + item._key;
     var marker = open ? '▾ ' : '▸ ';
-    var subParts = [row.dateLabel, row.eventLabel, item.place, item.author].filter(Boolean);
+    var subParts = [row.dateLabel ? '発信 ' + row.dateLabel : '', row.eventLabel, item.place, item.author].filter(Boolean);
 
     var button = el('button', {
       type: 'button',
@@ -223,7 +223,7 @@
     }, [
       // パソコン: 1行に列を並べる
       el('span', { className: 'row-cells' }, [
-        el('span', { className: 'date', text: row.dateLabel }),
+        el('span', { className: 'date', text: row.dateLabel || '—' }),
         el('span', { className: 'title', text: marker + item.title }),
         el('span', { text: row.eventLabel || '—' }),
         el('span', { text: item.place || '—' }),
@@ -413,6 +413,7 @@
       });
     });
     $('clearButton').addEventListener('click', clearConditions);
+    syncSortSelect();
     $('sortSelect').addEventListener('change', function () {
       var parts = $('sortSelect').value.split(':');
       state.sortKey = parts[0];

@@ -696,22 +696,37 @@ test('countEmojiNames: 取り除く数と同じ数を返す', () => {
   assert.strictEqual(L.countEmojiNames(''), 0);
 });
 
-test('archiveDateLabel: 発信日があれば「発信」、無ければ「登録」の札をつける。年が登録日と違うときだけ年も出す', () => {
-  assert.strictEqual(L.archiveDateLabel('2026-10-03', '2026-10-18 09:00:00'), '発信 10/3');
-  assert.strictEqual(L.archiveDateLabel('2024-03-05', '2026-10-18 09:00:00'), '発信 2024/3/5');
-  assert.strictEqual(L.archiveDateLabel('', '2026-10-18 09:00:00'), '登録 10/18');
-  assert.strictEqual(L.archiveDateLabel(undefined, '2026-10-18 09:00:00'), '登録 10/18');
-  // 形式が不正な発信日は使わない
-  assert.strictEqual(L.archiveDateLabel('昨日', '2026-10-18 09:00:00'), '登録 10/18');
+test('archiveDateLabel: 発信日だけを「10/3」の形にする。今年でなければ年も出し、空・不正は空文字（登録日は出さない）', () => {
+  assert.strictEqual(L.archiveDateLabel('2026-10-03', '2026-10-18'), '10/3');
+  assert.strictEqual(L.archiveDateLabel('2025-12-31', '2026-10-18'), '2025/12/31');
+  assert.strictEqual(L.archiveDateLabel('2026-10-03', ''), '2026/10/3', 'today が無ければ年を出す');
+  assert.strictEqual(L.archiveDateLabel('', '2026-10-18'), '');
+  assert.strictEqual(L.archiveDateLabel(undefined, '2026-10-18'), '');
+  assert.strictEqual(L.archiveDateLabel('昨日', '2026-10-18'), '');
 });
 
-test('buildArchiveView: 行の日付は発信日を優先し、並びと月の区切りは登録日のまま', () => {
+test('buildArchiveView: 行の日付は発信日だけ（無ければ空）で、登録日の並びと月の区切りはそのまま', () => {
   const items = [
     { title: 'A', savedAt: '2026-10-18 10:00:00', postedAt: '2026-09-30' },
     { title: 'B', savedAt: '2026-10-17 10:00:00' }
   ];
   const v = L.buildArchiveView(items, { sortKey: 'saved', dir: 'desc', today: '2026-10-18' });
   const rows = v.rows.filter((r) => r.type === 'item');
-  assert.deepStrictEqual(rows.map((r) => [r.item.title, r.dateLabel]), [['A', '発信 9/30'], ['B', '登録 10/17']]);
+  assert.deepStrictEqual(rows.map((r) => [r.item.title, r.dateLabel]), [['A', '9/30'], ['B', '']]);
   assert.strictEqual(v.rows[0].label, '2026年10月');
+});
+
+test('buildArchiveView: 発信日の並べ替え。新しい順でも古い順でも、発信日が空の記録は最後。月の区切りは発信日の月', () => {
+  const items = [
+    { title: '空', savedAt: '2026-10-19 10:00:00' },
+    { title: '9月', savedAt: '2026-10-18 10:00:00', postedAt: '2026-09-30' },
+    { title: '10月', savedAt: '2026-10-17 10:00:00', postedAt: '2026-10-03' },
+    { title: '去年', savedAt: '2026-10-16 10:00:00', postedAt: '2025-12-31' }
+  ];
+  const titles = (v) => v.rows.filter((r) => r.type === 'item').map((r) => r.item.title);
+  const desc = L.buildArchiveView(items, { sortKey: 'posted', dir: 'desc', today: '2026-10-19' });
+  assert.deepStrictEqual(titles(desc), ['10月', '9月', '去年', '空']);
+  assert.deepStrictEqual(desc.rows.filter((r) => r.type === 'month').map((r) => r.label), ['2026年10月', '2026年9月', '2025年12月', '発信日なし']);
+  const asc = L.buildArchiveView(items, { sortKey: 'posted', dir: 'asc', today: '2026-10-19' });
+  assert.deepStrictEqual(titles(asc), ['去年', '9月', '10月', '空']);
 });
