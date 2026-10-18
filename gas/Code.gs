@@ -335,8 +335,13 @@ function handleAnalyze_(body) {
   // AI がテレビ出演をオンライン（または不明）と判定しても、原文にテレビ局・番組の手がかりがあれば「テレビ」にする
   var attendance = result.event.attendance;
   delete result.event.attendance;
-  if ((attendance === 'online' || attendance === 'unknown') && mentionsTv_([result.title, urlSourceText].join('\n'))) {
+  var tvClue = mentionsTv_([result.title, urlSourceText].join('\n'));
+  if ((attendance === 'online' || attendance === 'unknown') && tvClue) {
     result.event.place = buildPlaceLabel_('tv', '');
+  } else if (attendance === 'tv' && youtubeVideoId_(cleanedUrl) && !tvClue) {
+    // YouTube の番組・配信を、AI が「番組への出演」からテレビと誤判定することがある。
+    // 元の URL が YouTube で、タイトル・原文にテレビ局などの手がかりが無ければ、オンラインにする
+    result.event.place = buildPlaceLabel_('online', '');
   }
   [['joinUrl', '参加 URL'], ['applyUrl', '申込 URL']].forEach(function (pair) {
     var proposed = result.event[pair[0]];
@@ -1073,7 +1078,7 @@ function fetchYoutubePostedDate_(videoId) {
     );
     var code = response.getResponseCode();
     if (code !== 200) {
-      return { date: '', note: 'YouTube の発信日を取得できませんでした（HTTP ' + code + '）。入力欄に手で入れられます' };
+      return { date: '', note: 'YouTube の発信日を取得できませんでした（HTTP ' + code + youtubeErrorReason_(response) + '）。入力欄に手で入れられます' };
     }
     var items = JSON.parse(response.getContentText()).items || [];
     var published = items.length && items[0].snippet ? String(items[0].snippet.publishedAt || '') : '';
@@ -1084,6 +1089,17 @@ function fetchYoutubePostedDate_(videoId) {
     return { date: date, note: date ? '' : 'YouTube の発信日の形式を読み取れませんでした' };
   } catch (err) {
     return { date: '', note: 'YouTube の発信日を取得できませんでした（' + String((err && err.message) || err) + '）' };
+  }
+}
+
+/** YouTube Data API のエラー応答から、原因の名前（accessNotConfigured・keyInvalid・quotaExceeded など）を取り出す。読めなければ空文字 */
+function youtubeErrorReason_(response) {
+  try {
+    var errors = JSON.parse(response.getContentText()).error.errors;
+    var reason = errors && errors[0] ? String(errors[0].reason || '') : '';
+    return /^[A-Za-z0-9_.-]{1,60}$/.test(reason) ? ': ' + reason : '';
+  } catch (err) {
+    return '';
   }
 }
 
@@ -2077,6 +2093,25 @@ function handleReorderList_(requested, type) {
 }
 
 // ---- 診断用 -----------------------------------------------------
+
+/**
+ * YouTube Data API への接続を試す（GAS エディタで実行し、「実行ログ」を見る）。
+ * 公開されている動画（YouTube の公式チャンネルの動画）を1回だけ調べる。API キーはログに出さない。
+ */
+function testYoutube() {
+  var key = getProperty_('YOUTUBE_API_KEY');
+  if (!key) {
+    Logger.log('YOUTUBE_API_KEY が未設定です');
+    return;
+  }
+  var response = UrlFetchApp.fetch(
+    'https://www.googleapis.com/youtube/v3/videos?part=snippet&id=jNQXAC9IVRw&key=' + encodeURIComponent(key),
+    { muteHttpExceptions: true }
+  );
+  Logger.log('HTTP ' + response.getResponseCode() + youtubeErrorReason_(response));
+  Logger.log('応答: ' + String(response.getContentText()).replace(key, '(キー)').slice(0, 800));
+  Logger.log('発信日の判定: ' + (fetchYoutubePostedDate_('jNQXAC9IVRw').date || '(取れませんでした)'));
+}
 
 /**
  * Jev への接続を試す（GAS エディタで実行し、「実行ログ」を見る）。

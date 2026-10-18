@@ -1778,3 +1778,41 @@ test('記録の一覧と公開用シート: 発信日を公開項目として返
   assert.ok(header.includes('発信日'), header.join(','));
   assert.strictEqual(tab.values[1][header.indexOf('発信日')], '2026/10/3(土)');
 });
+
+test('analyze: YouTube の URL で AI がテレビと判定しても、原文にテレビ局などの手がかりが無ければ「オンライン」にする', () => {
+  const run = (url, text, attendance = 'tv') => {
+    const env = load({
+      fetch: (u) => {
+        if (u.indexOf('generativelanguage') !== -1) { return geminiRes(geminiAnalyze({ attendance, area: '', title: '番組出演' })); }
+        return res(200, '<html><head><title>動画</title></head><body>本文</body></html>');
+      }
+    });
+    return post(env, { action: 'analyze', url, text }).event.place;
+  };
+  const youtube = 'https://m.youtube.com/watch?v=MJk8JDTUoGE';
+  assert.strictEqual(run(youtube, '番組初のゲストとして出演しました'), 'オンライン');
+  // 原文にテレビの手がかりがあれば、そのまま「テレビ」
+  assert.strictEqual(run(youtube, 'BS-TBS「報道1930」に出演した際の映像です'), 'テレビ');
+  assert.strictEqual(run(youtube, 'テレビ出演の様子です'), 'テレビ');
+  // YouTube 以外の URL・URL なしは、AI の判定（テレビ）のまま
+  assert.strictEqual(run('https://example.com/a', '番組初のゲストとして出演しました'), 'テレビ');
+  assert.strictEqual(run('', '番組初のゲストとして出演しました'), 'テレビ');
+});
+
+test('YouTube の API が失敗したときの警告に、HTTP の番号と原因の名前を入れる。testYoutube はキーをログに出さない', () => {
+  const env = youtubeEnv(() => res(403, { error: { code: 403, errors: [{ reason: 'accessNotConfigured', message: 'API has not been used' }] } }), { YOUTUBE_API_KEY: 'yt-secret-key' });
+  const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+  assert.ok(Array.from(r.warnings).some((w) => /HTTP 403: accessNotConfigured/.test(w)), r.warnings.join('|'));
+
+  const logs = [];
+  const env2 = youtubeEnv(() => res(403, { error: { errors: [{ reason: 'keyInvalid', message: 'bad key yt-secret-key' }] } }), { YOUTUBE_API_KEY: 'yt-secret-key' });
+  env2.context.Logger = { log: (m) => logs.push(String(m)) };
+  env2.context.testYoutube();
+  assert.ok(logs.some((l) => /HTTP 403: keyInvalid/.test(l)), logs.join('|'));
+  assert.ok(!logs.join('\n').includes('yt-secret-key'), 'API キーをログに出さない');
+  const env3 = load();
+  const logs3 = [];
+  env3.context.Logger = { log: (m) => logs3.push(String(m)) };
+  env3.context.testYoutube();
+  assert.match(logs3.join(''), /YOUTUBE_API_KEY が未設定/);
+});
