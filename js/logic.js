@@ -737,15 +737,16 @@
   }
 
   /**
-   * 記録の一覧の行に出す日付の札を作る純粋関数。発信日があれば「発信 10/3」、無ければ登録日の「登録 10/18」。
-   * 発信日の年が登録日の年と違うときは、年も出す（「発信 2024/3/5」）。
+   * 記録の一覧の行に出す、発信日の文字を作る純粋関数（「10/3」。発信日が空・不正なら空文字）。
+   * 登録日は出さない（読む人に見せたいのは、元の投稿・動画が出た日だけ）。
+   * 今年（today の年）でないときは、年も出す（「2024/3/5」）。today が無ければ、いつも年を出す。
    */
-  function archiveDateLabel(postedAt, savedAt) {
+  function archiveDateLabel(postedAt, today) {
     var p = String(postedAt || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!p) { return '登録 ' + shortDateLabel(savedAt); }
-    var s = String(savedAt || '').match(/^(\d{4})/);
-    var withYear = !s || s[1] !== p[1];
-    return '発信 ' + (withYear ? p[1] + '/' : '') + Number(p[2]) + '/' + Number(p[3]);
+    if (!p) { return ''; }
+    var t = String(today || '').match(/^(\d{4})/);
+    var withYear = !t || t[1] !== p[1];
+    return (withYear ? p[1] + '/' : '') + Number(p[2]) + '/' + Number(p[3]);
   }
 
   var ARCHIVE_SEARCH_FIELDS = ['title', 'summary', 'talk', 'original', 'author', 'place', 'category', 'performers', 'sourceLabel'];
@@ -790,6 +791,7 @@
 
     var valueOf = function (item) {
       if (sortKey === 'event') { return parseEventIso(item.eventIso).date + 'T' + (parseEventIso(item.eventIso).startTime || ''); }
+      if (sortKey === 'posted') { return /^\d{4}-\d{2}-\d{2}$/.test(String(item.postedAt || '')) ? String(item.postedAt) : ''; }
       if (sortKey === 'kind') { return String(item.kindLabel || ''); }
       if (sortKey === 'title') { return String(item.title || ''); }
       if (sortKey === 'author') { return String(item.author || ''); }
@@ -819,11 +821,12 @@
     var lastMonth = null;
     shownItems.forEach(function (entry) {
       var item = entry.item;
-      if (sortKey === 'saved') {
-        var m = String(item.savedAt || '').match(/^(\d{4})-(\d{2})/);
+      if (sortKey === 'saved' || sortKey === 'posted') {
+        // 月の区切りは、並べ替えに使っている日付（登録日か発信日）の月で入れる
+        var m = String(sortKey === 'saved' ? item.savedAt : item.postedAt || '').match(/^(\d{4})-(\d{2})/);
         var month = m ? m[1] + '-' + m[2] : '';
         if (month !== lastMonth) {
-          rows.push({ type: 'month', label: m ? m[1] + '年' + Number(m[2]) + '月' : '登録日なし' });
+          rows.push({ type: 'month', label: m ? m[1] + '年' + Number(m[2]) + '月' : (sortKey === 'saved' ? '登録日なし' : '発信日なし') });
           lastMonth = month;
         }
       }
@@ -831,7 +834,7 @@
         type: 'item',
         item: item,
         savedLabel: shortDateLabel(item.savedAt),
-        dateLabel: archiveDateLabel(item.postedAt, item.savedAt),
+        dateLabel: archiveDateLabel(item.postedAt, today),
         eventLabel: archiveEventLabel(item.eventIso)
       });
     });

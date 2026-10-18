@@ -83,7 +83,7 @@ input[type="search"], select {
 /* 列の幅（見出しと行で共通） */
 .list-head, .row-cells {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 190px 210px 150px;
+  grid-template-columns: 124px minmax(0, 1fr) 190px 210px 150px;
 }
 .list-head { border-bottom: 2px solid var(--text); font-size: 0.85rem; font-weight: 700; }
 .head-button {
