@@ -8,7 +8,7 @@
 // ============================================================
 
 window.ARCHIVE_CONFIG = {
-  gasUrl: 'https://script.google.com/macros/s/AKfycbw_mXZp1XTWOJm7RtB5aPF4VO6AIbRD8_5j7veRqdz7jfiyABffcf7e9Fusp9SHcLDh/exec',
+  gasUrl: 'https://script.google.com/macros/s/AKfycbwyHdY0DntW70BBmj3Dm3WWLHQnYaaGAnIcbk04q_2bw5ed5iDTrdyqSDHvY_Cfj90a/exec',
   title: '記録の一覧',
   description: 'オープンチャットで紹介した投稿と、記録だけに残した投稿をまとめています。行を押すと、トーク本文と原文を読めます。'
 };
