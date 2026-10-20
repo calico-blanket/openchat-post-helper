@@ -1365,9 +1365,9 @@ test('readUsage_: Gemini の出力は本文と考える過程の合計、Jev は
     geminiResWithUsage('{}', { promptTokenCount: 2000, candidatesTokenCount: 300, thoughtsTokenCount: 500 }),
     res(200, { answers: {}, usage: { input_tokens: 590, output_tokens: 97 } })
   );
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(u)), { geminiInput: 2000, geminiOutput: 800, jevInput: 590 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(u)), { geminiInput: 2000, geminiOutput: 800, jevInput: 590, provider: 'gemini' });
   const broken = context.readUsage_(res(500, 'error'), res(200, '{壊れた'));
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(broken)), { geminiInput: 0, geminiOutput: 0, jevInput: 0 });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(broken)), { geminiInput: 0, geminiOutput: 0, jevInput: 0, provider: 'gemini' });
 });
 
 test('analyze: 使用量を「利用量」シートに記録し、今回の概算を返す（Jev の分も含む）', () => {
@@ -1820,4 +1820,203 @@ test('YouTube の API が失敗したときの警告に、HTTP の番号と原�
   env3.context.Logger = { log: (m) => logs3.push(String(m)) };
   env3.context.testYoutube();
   assert.match(logs3.join(''), /YOUTUBE_API_KEY が未設定/);
+});
+
+// ---- Claude への切り替え（Gemini が使えないとき） ---------------------------------
+
+/** Claude の Messages API の成功応答（構造化出力は JSON 文字列を text ブロックで返す） */
+function claudeRes(textOrObj, usage = { input_tokens: 3000, output_tokens: 700 }, extra = {}) {
+  const text = typeof textOrObj === 'string' ? textOrObj : JSON.stringify(textOrObj);
+  return res(200, Object.assign({ type: 'message', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage }, extra));
+}
+
+/**
+ * Gemini は status を返し、Claude は claude() を返す偽の通信。
+ * 呼ばれた Claude のリクエスト本文を seen に集める。
+ */
+function fallbackEnv({ status = 503, claude, props, text } = {}) {
+  const seen = { claude: [], gemini: 0 };
+  const env = load({
+    props: Object.assign({ ANTHROPIC_API_KEY: 'claude-secret-key' }, props || {}),
+    fetch: (url, params) => {
+      if (url.indexOf('api.anthropic.com') !== -1) {
+        seen.claude.push({ url, headers: params.headers, body: JSON.parse(params.payload) });
+        return claude ? claude() : claudeRes(geminiAnalyze({ title: 'Claude の結果', attendance: 'online', area: '' }));
+      }
+      if (url.indexOf('generativelanguage') !== -1) { seen.gemini++; return res(status, { error: { code: status } }); }
+      return res(200, '<html></html>');
+    }
+  });
+  env.seen = seen;
+  return env;
+}
+
+test('geminiSchemaToJsonSchema_: 型を小文字にし、オブジェクトに additionalProperties: false を付ける（入れ子も）', () => {
+  const { context } = load();
+  const out = JSON.parse(JSON.stringify(context.geminiSchemaToJsonSchema_({
+    type: 'OBJECT',
+    properties: {
+      a: { type: 'STRING', enum: ['x', 'y'], description: '説明' },
+      b: { type: 'ARRAY', items: { type: 'STRING', enum: ['p'] } },
+      c: { type: 'BOOLEAN' }
+    },
+    required: ['a']
+  })));
+  assert.deepStrictEqual(out, {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      a: { type: 'string', enum: ['x', 'y'], description: '説明' },
+      b: { type: 'array', items: { type: 'string', enum: ['p'] } },
+      c: { type: 'boolean' }
+    },
+    required: ['a']
+  });
+});
+
+test('analyze: Gemini が 503 のままなら Claude Haiku に切り替え、結果・警告・使用量を返す（Gemini のやり直しは1回）', () => {
+  const env = fallbackEnv({ status: 503 });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(r.title, 'Claude の結果');
+  assert.strictEqual(r.analyzed, true);
+  assert.ok(Array.from(r.warnings).some((w) => /Claude（claude-haiku-5-5）で整えました/.test(w)), r.warnings.join('|'));
+  assert.strictEqual(env.seen.gemini, 2, 'Gemini は、最初と、3秒後のやり直しの2回');
+  assert.strictEqual(env.seen.claude.length, 1);
+  const call = env.seen.claude[0];
+  assert.strictEqual(call.url, 'https://api.anthropic.com/v1/messages');
+  assert.strictEqual(call.headers['x-api-key'], 'claude-secret-key');
+  assert.strictEqual(call.headers['anthropic-version'], '2023-06-01');
+  assert.strictEqual(call.body.model, 'claude-haiku-5-5');
+  assert.strictEqual(call.body.output_config.effort, 'low');
+  assert.strictEqual(call.body.output_config.format.type, 'json_schema');
+  assert.strictEqual(call.body.output_config.format.schema.additionalProperties, false);
+  assert.ok(call.body.output_config.format.schema.properties.attendance.enum.includes('tv'));
+  assert.ok(!('temperature' in call.body), 'Haiku 5.5 では temperature を送らない');
+  assert.match(call.body.messages[0].content[0].text, /告知の本文/);
+  assert.match(call.body.system, /編集者/);
+  // 使用量: モデル名は Claude、概算は Claude の料金（入力 3000×0.10 + 出力 700×0.50 = $0.00065 → 150円/ドルで約 0.1 円）
+  assert.strictEqual(r.usage.geminiInput, 3000);
+  assert.strictEqual(r.usage.geminiOutput, 700);
+  assert.strictEqual(r.usage.yen, 0.1);
+  const usageRows = env.usageSheet().values;
+  assert.strictEqual(usageRows[usageRows.length - 1][2], 'claude-haiku-5-5');
+  assert.ok(!JSON.stringify(r).includes('claude-secret-key'), 'API キーを返さない');
+});
+
+test('analyze: 500・504・429 でも Claude に切り替える。Gemini が正常（200）のときは Claude を呼ばない', () => {
+  for (const status of [500, 504, 429]) {
+    const env = fallbackEnv({ status });
+    const r = post(env, { action: 'analyze', text: '告知の本文' });
+    assert.strictEqual(r.ok, true, status + ': ' + r.error);
+    assert.strictEqual(env.seen.claude.length, 1, String(status));
+  }
+  const calls = [];
+  const env = load({
+    props: { ANTHROPIC_API_KEY: 'claude-secret-key' },
+    fetch: (url) => {
+      calls.push(url);
+      if (url.indexOf('api.anthropic.com') !== -1) { throw new Error('呼ばれないはず'); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.ok(!calls.some((u) => u.indexOf('api.anthropic.com') !== -1));
+  assert.ok(!Array.from(r.warnings).some((w) => /Claude/.test(w)));
+});
+
+test('analyze: ANTHROPIC_API_KEY が無ければ切り替えず、いまのエラーのまま', () => {
+  const env = fallbackEnv({ status: 503, props: { ANTHROPIC_API_KEY: undefined } });
+  const r = post(env, { action: 'analyze', text: '告知の本文' });
+  assert.match(r.error, /AI（Gemini）が混み合っていて/);
+  assert.ok(!/Claude/.test(r.error));
+  assert.strictEqual(env.seen.claude.length, 0);
+});
+
+test('analyze: Claude も失敗したら、Gemini のエラーに Claude の失敗を添える（キーは含めない）', () => {
+  const cases = [
+    [() => res(529, { type: 'error', error: { type: 'overloaded_error', message: 'x claude-secret-key' } }), /HTTP 529: overloaded_error/],
+    [() => res(401, { type: 'error', error: { type: 'authentication_error' } }), /HTTP 401: authentication_error/],
+    [() => claudeRes('', undefined, { content: [] }), /結果が空でした/],
+    [() => claudeRes('{}', undefined, { stop_reason: 'refusal' }), /拒否されました/],
+    [() => { throw new Error('通信できません'); }, /通信エラー: 通信できません/]
+  ];
+  for (const [claude, pattern] of cases) {
+    const env = fallbackEnv({ status: 503, claude });
+    const r = post(env, { action: 'analyze', text: '告知の本文' });
+    assert.match(r.error, /AI（Gemini）が混み合っていて、やり直しても応答がありませんでした/);
+    assert.match(r.error, /Claude への切り替えも失敗しました/);
+    assert.match(r.error, pattern);
+    assert.ok(!r.error.includes('claude-secret-key'), 'エラーにキーを含めない');
+  }
+});
+
+test('analyze: 画像は、Claude が読める形式（JPEG など）なら一緒に送り、HEIC・HEIF なら切り替えない', () => {
+  const jpeg = fallbackEnv({ status: 503 });
+  const r1 = post(jpeg, { action: 'analyze', image: { mimeType: 'image/jpeg', data: 'QUJD' } });
+  assert.strictEqual(r1.ok, true, r1.error);
+  const blocks = jpeg.seen.claude[0].body.messages[0].content;
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(blocks[1])), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } });
+
+  const heic = fallbackEnv({ status: 503 });
+  const r2 = post(heic, { action: 'analyze', image: { mimeType: 'image/heic', data: 'QUJD' } });
+  assert.match(r2.error, /AI（Gemini）が混み合っていて/);
+  assert.strictEqual(heic.seen.claude.length, 0);
+});
+
+test('summarize: Gemini が 503 のままなら Claude で要約し、モデル名と使用量を返す', () => {
+  const env = fallbackEnv({ status: 503, claude: () => claudeRes('Claude の要約', { input_tokens: 1000, output_tokens: 100 }) });
+  const r = post(env, { action: 'summarize', text: '長い原文', length: '3lines' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(r.summary, 'Claude の要約');
+  assert.strictEqual(r.fallbackModel, 'claude-haiku-5-5');
+  const body = env.seen.claude[0].body;
+  assert.ok(!body.output_config.format, '要約は文章で返す（JSON スキーマなし）');
+  assert.match(body.system, /3行程度/);
+  assert.strictEqual(body.messages[0].content[0].text, '長い原文');
+  const rows = env.usageSheet().values;
+  assert.strictEqual(rows[rows.length - 1][2], 'claude-haiku-5-5');
+});
+
+test('CLAUDE_MODEL でモデルを変えられる。bootstrap は claudeConfigured を返し、キーそのものは返さない', () => {
+  const env = fallbackEnv({ status: 503, props: { CLAUDE_MODEL: 'claude-sonnet-5-5' } });
+  post(env, { action: 'analyze', text: '告知の本文' });
+  assert.strictEqual(env.seen.claude[0].body.model, 'claude-sonnet-5-5');
+  const boot = post(load({ props: { ANTHROPIC_API_KEY: 'claude-secret-key' } }), { action: 'bootstrap' });
+  assert.strictEqual(boot.claudeConfigured, true);
+  assert.ok(!JSON.stringify(boot).includes('claude-secret-key'));
+  assert.strictEqual(post(load(), { action: 'bootstrap' }).claudeConfigured, false);
+});
+
+test('testClaude: 未設定なら案内を出し、設定済みなら HTTP の番号と要約を出す。キーはログに出さない', () => {
+  const logs0 = [];
+  const env0 = load();
+  env0.context.Logger = { log: (m) => logs0.push(String(m)) };
+  env0.context.testClaude();
+  assert.match(logs0.join(''), /ANTHROPIC_API_KEY が未設定/);
+
+  const logs = [];
+  const env = fallbackEnv({ claude: () => claudeRes('試しの要約') });
+  env.context.Logger = { log: (m) => logs.push(String(m)) };
+  env.context.testClaude();
+  assert.ok(logs.some((l) => /HTTP 200/.test(l)), logs.join('|'));
+  assert.ok(logs.some((l) => /読み取れた要約: 試しの要約/.test(l)));
+  assert.ok(!logs.join('\n').includes('claude-secret-key'));
+  // 構造化出力の試し: 偽の Claude が、整えた結果の JSON を返せば、読み取れた結果がログに出る
+  const logs3 = [];
+  const env3 = fallbackEnv({ claude: () => claudeRes(geminiAnalyze({ title: '勉強会', attendance: 'hybrid', area: '高崎' })) });
+  env3.context.Logger = { log: (m) => logs3.push(String(m)) };
+  env3.context.testClaude();
+  assert.ok(logs3.some((l) => /文章を整える形式（構造化出力）: HTTP 200/.test(l)), logs3.join('|'));
+  assert.ok(logs3.some((l) => /読み取れた結果: .*勉強会/.test(l)), logs3.join('|'));
+  assert.strictEqual(env3.seen.claude.length, 2, '要約と構造化出力の2回');
+  assert.ok(env3.seen.claude[1].body.output_config.format.schema, '2回目は JSON スキーマ付き');
+
+  const logs2 = [];
+  const env2 = fallbackEnv({ claude: () => res(401, { type: 'error', error: { type: 'authentication_error', message: 'bad key claude-secret-key' } }) });
+  env2.context.Logger = { log: (m) => logs2.push(String(m)) };
+  env2.context.testClaude();
+  assert.ok(logs2.some((l) => /HTTP 401（HTTP 401: authentication_error）/.test(l)), logs2.join('|'));
+  assert.ok(!logs2.join('\n').includes('claude-secret-key'));
 });

@@ -163,7 +163,8 @@
     renderSourceSelect($('inputSource'), true);
     renderSearchFilters();
     renderManageLists();
-    var info = '接続できました。モデル: ' + boot.model + '／Jev: ' + (boot.jevConfigured ? '使う' : '使わない（Gemini が分類）');
+    var info = '接続できました。モデル: ' + boot.model + '／Jev: ' + (boot.jevConfigured ? '使う' : '使わない（Gemini が分類）') +
+      '／Claude（Gemini が使えないときの予備）: ' + (boot.claudeConfigured ? '使う' : '使わない');
     if (!boot.geminiConfigured) { info += '／Gemini の API キーが未設定です'; }
     $('serverInfo').textContent = info;
     var sheetUrl = String(boot.spreadsheetUrl || '');

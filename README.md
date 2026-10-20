@@ -230,6 +230,8 @@ GAS は無料です。ただし Google アカウントごとに1日あたりの�
 | `TYPESAFE_API_KEY` | 任意 | Jev（TypeSafe）の API キー。設定すると、種別・カテゴリ・タグを Jev が判定し、Gemini と並列に呼びます。未設定なら Gemini がまとめて判定します |
 | `PUBLIC_SPREADSHEET_ID` | 任意 | 公開用スプレッドシートの ID。GAS エディタで `createPublicSpreadsheet` を実行すると自動で入ります（下の「公開用スプレッドシート」） |
 | `ARCHIVE_PUBLIC` | 任意 | `true` にすると、記録の一覧ページ（`archive.html`）用の読み取り専用の入口が動きます。未設定・`true` 以外なら公開しません（下の「記録の一覧ページ」） |
+| `ANTHROPIC_API_KEY` | 任意 | Claude（Anthropic）の API キー。Gemini が混み合い・上限のままのとき（HTTP 429・500・503・504）だけ、Claude Haiku に切り替えます（下の「Gemini が使えないときの予備（Claude）」）。**Claude の API は無料枠がありません**（未設定なら切り替えません） |
+| `CLAUDE_MODEL` | 任意 | 予備の Claude のモデル名。省略時は `claude-haiku-5-5` |
 | `YOUTUBE_API_KEY` | 任意 | YouTube Data API のキー。設定すると、YouTube の URL から動画の公開日を「発信日」に自動で入れます。未設定なら YouTube の発信日は手で入れます（下の「発信日の自動入力」） |
 
 ### 4. 権限を承認する
@@ -291,6 +293,17 @@ YouTube のキーの作り方（無料の範囲）:
 1. `gas/` の変更したファイルを、GAS エディタに貼り付けて保存する。
 2. 「デプロイ」→「デプロイを管理」→ 鉛筆アイコン →「バージョン: 新バージョン」→「デプロイ」。URL は変わりません。
 3. 新しい権限が必要な変更なら、`authorizeOnce` をもう一度実行する。
+
+### Gemini が使えないときの予備（Claude）
+
+Gemini が混み合っている（HTTP 500・503・504）・利用回数の上限に達した（429）ときは、「文章を整える」「要約」が止まります。`ANTHROPIC_API_KEY` を入れておくと、Gemini を3秒待って1回やり直してもだめだったときだけ、Claude Haiku（`claude-haiku-5-5`）で同じ処理をやり直します。Gemini が正常なときは、Claude は呼びません。
+
+- **費用:** 無料枠はありません。Haiku 5.5 の料金は、100万トークンあたり入力 $0.10・出力 $0.50（入力10万トークンまでの料金。2026年10月時点）で、「文章を整える」1回は約 0.2 円の目安です。Anthropic の Console で、支払い方法（クレジットの購入など）の設定が要ります。支払い情報の入力は、ご自身で行ってください。
+- **切り替わったとき:** 結果画面の警告に「Claude（…）で整えました」と出ます。「利用量」シートのモデル名の欄に Claude のモデル名が入り、設定画面の「今月の概算」にも、Claude の料金で足されます（トークン数の列は、Gemini・Claude のどちらも同じ列に入ります）。
+- **切り替えないとき:** `ANTHROPIC_API_KEY` が未設定／チラシ画像が HEIC・HEIF 形式（Claude は読めません。JPEG・PNG・WebP・GIF は読めます）。このときは、これまでと同じ日本語のエラーです。Claude も失敗したときは、Gemini のエラーに「Claude への切り替えも失敗しました（HTTP …）」が添わります。
+- **キーの作り方:** [Anthropic Console](https://console.anthropic.com/)で API キーを作り、`ANTHROPIC_API_KEY` に貼ります（キーはコードやリポジトリには書きません）。
+- **確かめ方:** GAS エディタで関数 `testClaude` を選んで実行し、「実行ログ」を見ます。短い要約と、「文章を整える」と同じ形式（構造化出力）の2回を試します（キーはログに出ません）。`HTTP 200` と、「読み取れた要約」「読み取れた結果」が出れば使えます。`HTTP 401: authentication_error` はキーが違う、`HTTP 400` の `invalid_request_error` は、支払い設定やモデル名を確かめてください。
+- 判定の癖は Gemini と少し違うので、種別・カテゴリ・場所などが変わることがあります。曜日・URL の検査・テレビの補正・発信日などの、コード側の検査は、Claude の結果にもそのまま効きます。
 
 ### Jev の分類がうまくいかないとき
 
