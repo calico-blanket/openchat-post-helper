@@ -47,7 +47,7 @@ Slack・X・Instagram・Threads・LINE公式・note・議員の告知・チラ�
 
 - PWA: Vercel（本番 `https://openchat-post-helper.vercel.app`、一覧 `/archive.html`）。main へのマージで自動で公開される。プレビュー URL は Vercel へのログインが必要。
 - GAS: スプレッドシートに紐づいた GAS。**GitHub とは自動で同期しない**。`gas/` を変えたら、利用者が GAS エディタに貼り付けて「デプロイを管理 → 新バージョン」を行う。
-- スクリプトプロパティ: `SHARED_TOKEN`（必須。未設定なら全 API を拒否）、`GEMINI_API_KEY`、`GEMINI_MODEL`（既定 `gemini-3.1-flash-lite`）、`TYPESAFE_API_KEY`（任意。Jev の分類）、`ARCHIVE_PUBLIC`、`PUBLIC_SPREADSHEET_ID`。画面で管理する一覧（カテゴリ・タグ・発信者の候補・追加した種別 `KINDS_JSON`）もここに入る。実際の値は AI もリポジトリも持たない。
+- スクリプトプロパティ: `SHARED_TOKEN`（必須。未設定なら全 API を拒否）、`GEMINI_API_KEY`、`GEMINI_MODEL`（既定 `gemini-3.1-flash-lite`）、`TYPESAFE_API_KEY`（任意。Jev の分類）、`ANTHROPIC_API_KEY`（任意。Gemini が使えないときの予備の Claude。無料枠なし）、`CLAUDE_MODEL`（任意。既定 `claude-haiku-5-5`）、`ARCHIVE_PUBLIC`、`PUBLIC_SPREADSHEET_ID`。画面で管理する一覧（カテゴリ・タグ・発信者の候補・追加した種別 `KINDS_JSON`）もここに入る。実際の値は AI もリポジトリも持たない。
 - リポジトリ: `calico-blanket/openchat-post-helper`（非公開）。
 
 ## 4. 利用者との進め方（必ず守る）
@@ -91,7 +91,7 @@ Slack・X・Instagram・Threads・LINE公式・note・議員の告知・チラ�
 - 公開用シートの並びは、カテゴリを先頭側に、種別を末尾に置く（カテゴリと取り違えられないため）。種別の列は、まだ非表示にしていない。後日非表示にするか、このまま表示するかは未定（利用者が決める）。列は `Config.gs` の `publicSheet.columns` で変えられる。非表示は列の位置に付くので、並びを変えたら非表示を確かめ直す。
 - シートの列は見出しの名前で探す（列の並びに頼らない）。発信者は「種別」と「ソース」の間。旧「メモ」列は「コメント」として読む。
 - 公開用スプレッドシートには、ID とコメント以外を載せる。トーク本文の列は載せない。タイトルは元の投稿へのリンク。
-- Gemini が 500/503/504 なら、3秒待って1回だけやり直す。429 はやり直さない。どちらも日本語のエラーにする。
+- Gemini が 500/503/504 なら、3秒待って1回だけやり直す。やり直しても 429・500・503・504 で、`ANTHROPIC_API_KEY` があれば、Claude Haiku（`claude-haiku-5-5`）で同じ処理（「文章を整える」「要約」）をやり直す（`callClaudeFallback_`。Claude の応答を Gemini の形に直して、あとの解析・使用量の記録をそのまま使う）。キー未設定・HEIC/HEIF の画像のときは切り替えない。Claude も失敗したら Gemini のエラーに「Claude への切り替えも失敗しました（HTTP …）」を添える。切り替えたら結果画面の警告に出し、使用量は Claude の料金（`Config.gs` の `claudeInputUsdPerMTok` など）で足す。Claude の API は無料枠なし（2026-10-20、利用者が了承）。**本物の Claude API での確認は、利用者が `testClaude`（GAS エディタ）で行う（AI 側ではキーが無く未確認）。**429 はやり直さない。どちらも日本語のエラーにする。
 - 費用は無料枠・少額が前提。AI の使用量は「利用量」シートに記録し、設定画面で今月の概算（円）を表示する。
 
 ## 6. 残っている作業・保留中のこと

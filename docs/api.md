@@ -20,9 +20,9 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 | action | 入力 | 返すもの |
 |---|---|---|
-| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（記録の一覧が有効か）、`usageThisMonth`（今月の使用量の概算 `{ month, count, analyzeCount, summarizeCount, yen }`）、`publicSpreadsheetUrl`（公開用スプレッドシートの URL。未設定なら空）、`geminiConfigured`、`jevConfigured`、`model`。API キーは返さない |
+| `bootstrap` | なし | `config`（Config.gs の APP_CONFIG）、`categories`、`tags`、`authors`（発信者の候補）、`spreadsheetUrl`（保存先スプレッドシートの URL）、`archivePublic`（記録の一覧が有効か）、`usageThisMonth`（今月の使用量の概算 `{ month, count, analyzeCount, summarizeCount, yen }`）、`publicSpreadsheetUrl`（公開用スプレッドシートの URL。未設定なら空）、`geminiConfigured`、`jevConfigured`、`claudeConfigured`（予備の Claude のキーがあるか）、`model`。API キーは返さない |
 | `analyze` | `url?` `text?` `source?` `image?: {mimeType, data(base64)}` | 下記 |
-| `summarize` | `text` `length: "half" \| "3lines"` | `summary`、`usage`（今回の使用量の概算） |
+| `summarize` | `text` `length: "half" \| "3lines"` | `summary`、`usage`（今回の使用量の概算）、`fallbackModel`（Gemini が使えず Claude に切り替えたときのモデル名。切り替えなければ空） |
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
 | `update` | `id` ＋ 投稿データ ＋ `force?` | `id`（登録日時と ID は変えない） |
 | `delete` | `id` | `id` |

@@ -21,6 +21,8 @@ const vm = require('node:vm');
 const PORT = Number(process.argv[2]) || 8765;
 const ROOT = path.join(__dirname, '..');
 const DEV_TOKEN = 'dev-token';
+// 第3引数（または環境変数 DEV_GEMINI_STATUS）に 503 などを渡すと、偽の Gemini がその HTTP 番号を返す（Claude への切り替えの確認用）
+const GEMINI_STATUS = Number(process.argv[3] || process.env.DEV_GEMINI_STATUS) || 0;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -91,8 +93,31 @@ function fakeGeminiSummary(payload) {
   return fakeResponse(200, { candidates: [{ content: { parts: [{ text: summary }] } }], usageMetadata: { promptTokenCount: 300 + text.length, candidatesTokenCount: 500 } });
 }
 
+/**
+ * 偽の Claude（予備）。Claude の形のリクエストを Gemini の形に直して、偽の Gemini と同じ結果を作り、Claude の形で返す。
+ * 偽の Gemini を 503 にして起動する（.claude/launch.json の dev-gemini503。第3引数に 503）と、この偽の Claude に切り替わる。
+ */
+function fakeClaude(payload) {
+  const blocks = payload.messages[0].content;
+  const format = payload.output_config && payload.output_config.format;
+  let text;
+  if (format) {
+    const parts = blocks.map((b) => (b.type === 'text' ? { text: b.text } : { inlineData: {} }));
+    const gemini = fakeGeminiAnalyze({ contents: [{ parts }], generationConfig: { responseSchema: { properties: format.schema.properties } } });
+    text = JSON.parse(gemini.getContentText()).candidates[0].content.parts[0].text;
+  } else {
+    const gemini = fakeGeminiSummary({ contents: [{ parts: [{ text: blocks[0].text }] }] });
+    text = JSON.parse(gemini.getContentText()).candidates[0].content.parts[0].text;
+  }
+  return fakeResponse(200, { type: 'message', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 1500 + blocks[0].text.length, output_tokens: 400 } });
+}
+
 function fakeFetch(url, params) {
+  if (url.startsWith('https://api.anthropic.com/v1/messages')) {
+    return fakeClaude(JSON.parse(params.payload));
+  }
   if (url.startsWith('https://generativelanguage.googleapis.com/')) {
+    if (GEMINI_STATUS) { return fakeResponse(GEMINI_STATUS, { error: { code: GEMINI_STATUS } }); }
     const payload = JSON.parse(params.payload);
     return payload.generationConfig.responseMimeType === 'application/json'
       ? fakeGeminiAnalyze(payload)
@@ -184,7 +209,7 @@ function createGasContext() {
   };
   devPublicSheets = publicSheets;
   // 記録の一覧（archive.html）も確かめられるよう、開発サーバーでは公開を有効にしておく
-  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', YOUTUBE_API_KEY: 'fake-youtube-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
+  const props = { SHARED_TOKEN: DEV_TOKEN, GEMINI_API_KEY: 'fake-key', YOUTUBE_API_KEY: 'fake-youtube-key', ANTHROPIC_API_KEY: 'fake-claude-key', ARCHIVE_PUBLIC: 'true', PUBLIC_SPREADSHEET_ID: 'dev-public' };
   const pad = (n) => String(n).padStart(2, '0');
   const context = {
     SpreadsheetApp: {

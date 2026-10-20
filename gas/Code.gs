@@ -22,6 +22,14 @@
 var TIME_ZONE = 'Asia/Tokyo';
 var DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite';
 var GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+// Gemini が混み合い・上限のままのときの予備（Claude Haiku）。スクリプトプロパティ ANTHROPIC_API_KEY があるときだけ使う
+var DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
+var CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
+var CLAUDE_API_VERSION = '2023-06-01';
+// Claude に切り替える Gemini の HTTP 番号（混み合い 500・503・504 と、利用回数の上限 429）
+var AI_FALLBACK_CODES = [429, 500, 503, 504];
+// Claude が読める画像の形式（HEIC・HEIF は読めないので、切り替えない）
+var CLAUDE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 var JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 var JEV_THRESHOLD = 0.5;
 
@@ -190,6 +198,7 @@ function handleBootstrap_() {
     authors: getAuthors_(),
     geminiConfigured: !!getProperty_('GEMINI_API_KEY'),
     jevConfigured: !!getProperty_('TYPESAFE_API_KEY'),
+    claudeConfigured: !!getProperty_('ANTHROPIC_API_KEY'),
     model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL,
     // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
     spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
@@ -270,7 +279,7 @@ function handleAnalyze_(body) {
   var tags = getTags_();
   var useJev = !!jevKey && !!original;
 
-  var requests = [buildGeminiAnalyzeRequest_({
+  var analyzeOptions = {
     apiKey: apiKey,
     model: model,
     text: truncateText_(original, (limits.llmInputMaxCharsBySource || {})[source] || limits.llmInputMaxChars),
@@ -280,7 +289,8 @@ function handleAnalyze_(body) {
     today: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd'),
     categories: categories,
     tags: tags
-  })];
+  };
+  var requests = [buildGeminiAnalyzeRequest_(analyzeOptions)];
   if (useJev) {
     requests.push(buildJevRequest_(jevKey, {
       url: result.resolvedUrl,
@@ -289,8 +299,18 @@ function handleAnalyze_(body) {
   }
 
   var responses = retryGeminiIfBusy_(UrlFetchApp.fetchAll(requests), requests, 0);
+  // Gemini が混み合い・上限のままなら、Claude Haiku に切り替える（ANTHROPIC_API_KEY があるときだけ）
+  var fallback = callClaudeFallback_(responses[0], function (claudeKey, claudeModel) {
+    return buildClaudeAnalyzeRequest_(Object.assign({}, analyzeOptions, { apiKey: claudeKey, model: claudeModel }));
+  }, input.image);
+  var usedModel = model;
+  if (fallback) {
+    responses[0] = fallback.response;
+    usedModel = fallback.model;
+    warnings.push('Gemini が混み合っていた（または上限に達した）ため、Claude（' + fallback.model + '）で整えました');
+  }
   // 使用量は、結果を読み解く前に記録する（読み解きに失敗しても、使った分は残す）
-  result.usage = recordUsage_('文章を整える', model, readUsage_(responses[0], useJev ? responses[1] : null));
+  result.usage = recordUsage_('文章を整える', usedModel, readUsage_(responses[0], useJev ? responses[1] : null));
   var gemini = parseGeminiAnalyzeResponse_(responses[0], categories, tags);
 
   result.title = gemini.title || result.title;
@@ -692,7 +712,7 @@ function codePointToString_(code) {
  * analyze 用の Gemini リクエスト（UrlFetchApp.fetchAll に渡す形）を作る純粋関数。
  * 種別・カテゴリ・タグも毎回判定させる（Jev があれば Jev を優先し、Gemini の判定は失敗時の予備にする）。
  */
-function buildGeminiAnalyzeRequest_(options) {
+function buildAnalyzeMaterials_(options) {
   var kindKeys = getKinds_().map(function (k) { return k.key; });
   var properties = {
     title: { type: 'STRING', description: '投稿のタイトル。30文字以内。【】は付けない' },
@@ -753,7 +773,13 @@ function buildGeminiAnalyzeRequest_(options) {
     options.text || '（本文なし。画像を読み取ってください）'
   ].join('\n');
 
-  var parts = [{ text: userText }];
+  return { system: system, userText: userText, properties: properties, required: required };
+}
+
+/** analyze 用の Gemini リクエストを作る純粋関数 */
+function buildGeminiAnalyzeRequest_(options) {
+  var m = buildAnalyzeMaterials_(options);
+  var parts = [{ text: m.userText }];
   if (options.image) {
     parts.push({ inlineData: { mimeType: options.image.mimeType, data: options.image.data } });
   }
@@ -765,15 +791,151 @@ function buildGeminiAnalyzeRequest_(options) {
     headers: { 'x-goog-api-key': options.apiKey },
     muteHttpExceptions: true,
     payload: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
+      systemInstruction: { parts: [{ text: m.system }] },
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
         temperature: 0.2,
         responseMimeType: 'application/json',
-        responseSchema: { type: 'OBJECT', properties: properties, required: required }
+        responseSchema: { type: 'OBJECT', properties: m.properties, required: m.required }
       }
     })
   };
+}
+
+// ---- Claude（Gemini が使えないときの予備） --------------------------
+
+/** Gemini 形式のスキーマ（型が大文字）を、JSON Schema（型が小文字・オブジェクトは追加項目なし）にする純粋関数 */
+function geminiSchemaToJsonSchema_(schema) {
+  var out = {};
+  Object.keys(schema).forEach(function (key) {
+    var value = schema[key];
+    if (key === 'type') { out.type = String(value).toLowerCase(); }
+    else if (key === 'properties') {
+      out.properties = {};
+      Object.keys(value).forEach(function (name) { out.properties[name] = geminiSchemaToJsonSchema_(value[name]); });
+    } else if (key === 'items') { out.items = geminiSchemaToJsonSchema_(value); }
+    else { out[key] = value; }
+  });
+  if (out.type === 'object') { out.additionalProperties = false; }
+  return out;
+}
+
+/**
+ * Claude の Messages API のリクエスト（UrlFetchApp.fetch に渡す形）を作る純粋関数。
+ *   options: apiKey / model / system / content（ブロックの配列）/ schema（JSON Schema。省略すると文章で返す）/ maxTokens
+ * 考える処理は最小（effort: low）にして費用を抑える。Haiku 5.5 では temperature は指定しない。
+ */
+function buildClaudeRequest_(options) {
+  var outputConfig = { effort: 'low' };
+  if (options.schema) { outputConfig.format = { type: 'json_schema', schema: options.schema }; }
+  return {
+    url: CLAUDE_ENDPOINT,
+    method: 'post',
+    contentType: 'application/json',
+    headers: { 'x-api-key': options.apiKey, 'anthropic-version': CLAUDE_API_VERSION },
+    muteHttpExceptions: true,
+    payload: JSON.stringify({
+      model: options.model,
+      max_tokens: options.maxTokens || 4096,
+      system: options.system,
+      messages: [{ role: 'user', content: options.content }],
+      output_config: outputConfig
+    })
+  };
+}
+
+/** analyze 用の Claude リクエストを作る純粋関数（材料は Gemini と同じ） */
+function buildClaudeAnalyzeRequest_(options) {
+  var m = buildAnalyzeMaterials_(options);
+  var content = [{ type: 'text', text: m.userText }];
+  if (options.image) {
+    content.push({ type: 'image', source: { type: 'base64', media_type: options.image.mimeType, data: options.image.data } });
+  }
+  return buildClaudeRequest_({
+    apiKey: options.apiKey,
+    model: options.model,
+    system: m.system,
+    content: content,
+    schema: geminiSchemaToJsonSchema_({ type: 'OBJECT', properties: m.properties, required: m.required }),
+    maxTokens: 4096
+  });
+}
+
+/** 要約用の Claude リクエストを作る純粋関数 */
+function buildClaudeSummaryRequest_(apiKey, model, text, length) {
+  return buildClaudeRequest_({
+    apiKey: apiKey,
+    model: model,
+    system: summarySystemPrompt_(length),
+    content: [{ type: 'text', text: text }],
+    maxTokens: 2048
+  });
+}
+
+/** Claude の応答の失敗の理由を、短い文字列にする（HTTP の番号と、あれば原因の名前）。キーは含まれない */
+function claudeErrorDetail_(response) {
+  var detail = 'HTTP ' + response.getResponseCode();
+  try {
+    var type = (JSON.parse(response.getContentText()).error || {}).type;
+    if (type && /^[a-z_]{1,60}$/.test(type)) { detail += ': ' + type; }
+  } catch (err) { /* 読めなければ番号だけ */ }
+  return detail;
+}
+
+/**
+ * Claude の応答を、Gemini の応答と同じ形（候補のテキスト＋使用量）に直す。
+ * これで、あとの解析（parseGeminiAnalyzeResponse_・readUsage_）をそのまま使える。
+ * @returns {{ response: Object|null, detail: string }} 失敗なら response は null
+ */
+function claudeAsGeminiResponse_(claudeResponse) {
+  if (claudeResponse.getResponseCode() !== 200) {
+    return { response: null, detail: claudeErrorDetail_(claudeResponse) };
+  }
+  var data;
+  try { data = JSON.parse(claudeResponse.getContentText()); } catch (err) { return { response: null, detail: '応答を読めませんでした' }; }
+  if (data.stop_reason === 'refusal') { return { response: null, detail: '安全上の理由で拒否されました' }; }
+  var text = (data.content || [])
+    .filter(function (block) { return block && block.type === 'text' && typeof block.text === 'string'; })
+    .map(function (block) { return block.text; })
+    .join('');
+  if (!text) { return { response: null, detail: '結果が空でした' }; }
+  var usage = data.usage || {};
+  var body = JSON.stringify({
+    candidates: [{ content: { parts: [{ text: text }] } }],
+    usageMetadata: { promptTokenCount: usage.input_tokens || 0, candidatesTokenCount: usage.output_tokens || 0 },
+    provider: 'claude'
+  });
+  return { response: { getResponseCode: function () { return 200; }, getContentText: function () { return body; } }, detail: '' };
+}
+
+/**
+ * Gemini が混み合い・上限のまま（やり直しても 429・500・503・504）のとき、Claude Haiku で同じ処理をやり直す。
+ * 切り替えない（null を返す）とき: Gemini が正常／ANTHROPIC_API_KEY が未設定／Claude が読めない画像（HEIC など）。
+ * Claude も失敗したら、Gemini のエラーに Claude の失敗を添えた Error を投げる。
+ * @param geminiResponse やり直したあとの Gemini の応答
+ * @param makeRequest (claudeKey, claudeModel) => Claude のリクエスト
+ * @param image analyze の画像（無ければ null）
+ * @returns {{ response: Object, model: string }|null}
+ */
+function callClaudeFallback_(geminiResponse, makeRequest, image) {
+  if (AI_FALLBACK_CODES.indexOf(geminiResponse.getResponseCode()) === -1) { return null; }
+  var key = getProperty_('ANTHROPIC_API_KEY');
+  if (!key) { return null; }
+  if (image && CLAUDE_IMAGE_TYPES.indexOf(image.mimeType) === -1) { return null; }
+  var model = getProperty_('CLAUDE_MODEL') || DEFAULT_CLAUDE_MODEL;
+  var request = makeRequest(key, model);
+  var params = {};
+  Object.keys(request).forEach(function (name) { if (name !== 'url') { params[name] = request[name]; } });
+  var converted;
+  try {
+    converted = claudeAsGeminiResponse_(UrlFetchApp.fetch(request.url, params));
+  } catch (err) {
+    converted = { response: null, detail: '通信エラー: ' + String((err && err.message) || err) };
+  }
+  if (converted.response) { return { response: converted.response, model: model }; }
+  var geminiMessage;
+  try { readGeminiText_(geminiResponse); geminiMessage = 'AI（Gemini）が使えませんでした'; } catch (geminiErr) { geminiMessage = geminiErr.message; }
+  throw new Error(geminiMessage + '。Claude への切り替えも失敗しました（' + converted.detail + '）');
 }
 
 /** Gemini が一時的に混み合っているときの HTTP 番号（自動で1回だけやり直す） */
@@ -1150,18 +1312,28 @@ function handleSummarize_(body) {
     length
   );
   var response = retryGeminiIfBusy_(UrlFetchApp.fetchAll([request]), [request], 0)[0];
-  var usage = recordUsage_('要約', getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL, readUsage_(response, null));
-  return { ok: true, summary: readGeminiText_(response).trim(), length: length, usage: usage };
+  var usedModel = getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
+  var truncated = truncateText_(text, APP_CONFIG.limits.summaryInputMaxChars);
+  var fallback = callClaudeFallback_(response, function (claudeKey, claudeModel) {
+    return buildClaudeSummaryRequest_(claudeKey, claudeModel, truncated, length);
+  }, null);
+  if (fallback) { response = fallback.response; usedModel = fallback.model; }
+  var usage = recordUsage_('要約', usedModel, readUsage_(response, null));
+  return { ok: true, summary: readGeminiText_(response).trim(), length: length, usage: usage, fallbackModel: fallback ? fallback.model : '' };
 }
 
 /** 要約用の Gemini リクエストを作る純粋関数 */
-function buildGeminiSummaryRequest_(apiKey, model, text, length) {
-  var system = [
+function summarySystemPrompt_(length) {
+  return [
     '次の文章を日本語で' + SUMMARY_LENGTH_GUIDES[length] + 'に要約してください。',
     'URL・日付・時刻・数字・人名・地名は、原文の表記のまま残してください。',
     '原文に書かれていないことは書かないでください。',
     '前置き（「以下は要約です」など）や見出しは付けず、要約の本文だけを出力してください。'
   ].join('\n');
+}
+
+function buildGeminiSummaryRequest_(apiKey, model, text, length) {
+  var system = summarySystemPrompt_(length);
   return {
     url: GEMINI_ENDPOINT + encodeURIComponent(model) + ':generateContent',
     method: 'post',
@@ -1796,10 +1968,13 @@ var USAGE_HEADER = ['日時', '操作', 'モデル', 'Gemini入力トークン',
  * Gemini の出力は、本文（candidatesTokenCount）と内部の考える過程（thoughtsTokenCount）の合計。
  */
 function readUsage_(geminiResponse, jevResponse) {
-  var usage = { geminiInput: 0, geminiOutput: 0, jevInput: 0 };
+  var usage = { geminiInput: 0, geminiOutput: 0, jevInput: 0, provider: 'gemini' };
   var num = function (v) { return typeof v === 'number' && v > 0 ? v : 0; };
   try {
-    var meta = (JSON.parse(geminiResponse.getContentText()) || {}).usageMetadata || {};
+    var parsed = JSON.parse(geminiResponse.getContentText()) || {};
+    // Claude の応答は Gemini の形に直してあるので、provider で見分ける（入力・出力のトークン数は同じ欄に入る）
+    if (parsed.provider === 'claude') { usage.provider = 'claude'; }
+    var meta = parsed.usageMetadata || {};
     usage.geminiInput = num(meta.promptTokenCount);
     usage.geminiOutput = num(meta.candidatesTokenCount) + num(meta.thoughtsTokenCount);
   } catch (e) { /* 読めなければ 0 のまま */ }
@@ -1814,8 +1989,9 @@ function readUsage_(geminiResponse, jevResponse) {
 /** トークン数から概算の金額（円）を計算する純粋関数。小数第2位まで */
 function estimateYen_(usage) {
   var price = APP_CONFIG.pricing || {};
-  var usd = (usage.geminiInput * (price.geminiInputUsdPerMTok || 0) +
-    usage.geminiOutput * (price.geminiOutputUsdPerMTok || 0) +
+  var claude = usage.provider === 'claude';
+  var usd = (usage.geminiInput * ((claude ? price.claudeInputUsdPerMTok : price.geminiInputUsdPerMTok) || 0) +
+    usage.geminiOutput * ((claude ? price.claudeOutputUsdPerMTok : price.geminiOutputUsdPerMTok) || 0) +
     usage.jevInput * (price.jevInputUsdPerMTok || 0)) / 1000000;
   return Math.round(usd * (price.yenPerUsd || 0) * 100) / 100;
 }
@@ -2112,6 +2288,58 @@ function testYoutube() {
   Logger.log('HTTP ' + response.getResponseCode() + youtubeErrorReason_(response));
   Logger.log('応答: ' + String(response.getContentText()).replace(key, '(キー)').slice(0, 800));
   Logger.log('発信日の判定: ' + (fetchYoutubePostedDate_('jNQXAC9IVRw').date || '(取れませんでした)'));
+}
+
+/**
+ * Claude（予備）への接続を試す（GAS エディタで実行し、「実行ログ」を見る）。
+ * 短い要約を1回だけ頼む。API キーはログに出さない。
+ */
+function testClaude() {
+  var key = getProperty_('ANTHROPIC_API_KEY');
+  if (!key) {
+    Logger.log('ANTHROPIC_API_KEY が未設定です');
+    return;
+  }
+  var model = getProperty_('CLAUDE_MODEL') || DEFAULT_CLAUDE_MODEL;
+  var request = buildClaudeSummaryRequest_(key, model, '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。参加は無料です。', '3lines');
+  var params = {};
+  Object.keys(request).forEach(function (name) { if (name !== 'url') { params[name] = request[name]; } });
+  var response = UrlFetchApp.fetch(request.url, params);
+  var converted = claudeAsGeminiResponse_(response);
+  Logger.log('モデル: ' + model);
+  Logger.log('HTTP ' + response.getResponseCode() + (converted.response ? '' : '（' + converted.detail + '）'));
+  Logger.log('応答: ' + String(response.getContentText()).replace(key, '(キー)').slice(0, 800));
+  if (converted.response) { Logger.log('読み取れた要約: ' + readGeminiText_(converted.response)); }
+
+  // 実際の「文章を整える」と同じスキーマ（構造化出力）でも試す。ここが通れば、切り替え時にも使える
+  var categories = getCategories_();
+  var tags = getTags_();
+  var analyzeRequest = buildClaudeAnalyzeRequest_({
+    apiKey: key,
+    model: model,
+    text: '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。参加は無料です。',
+    image: null,
+    url: '',
+    source: 'other',
+    today: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd'),
+    categories: categories,
+    tags: tags
+  });
+  var analyzeParams = {};
+  Object.keys(analyzeRequest).forEach(function (name) { if (name !== 'url') { analyzeParams[name] = analyzeRequest[name]; } });
+  var analyzeResponse = UrlFetchApp.fetch(analyzeRequest.url, analyzeParams);
+  var analyzeConverted = claudeAsGeminiResponse_(analyzeResponse);
+  Logger.log('文章を整える形式（構造化出力）: HTTP ' + analyzeResponse.getResponseCode() + (analyzeConverted.response ? '' : '（' + analyzeConverted.detail + '）'));
+  if (!analyzeConverted.response) {
+    Logger.log('応答: ' + String(analyzeResponse.getContentText()).replace(key, '(キー)').slice(0, 800));
+    return;
+  }
+  try {
+    var parsed = parseGeminiAnalyzeResponse_(analyzeConverted.response, categories, tags);
+    Logger.log('読み取れた結果: ' + JSON.stringify(parsed).slice(0, 800));
+  } catch (err) {
+    Logger.log('結果を読めませんでした: ' + err.message);
+  }
 }
 
 /**

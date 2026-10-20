@@ -163,7 +163,10 @@ var APP_CONFIG = {
     geminiInputUsdPerMTok: 0.25,
     geminiOutputUsdPerMTok: 1.50,
     // Jev の 100万トークンあたりのドル（出力は無料）
-    jevInputUsdPerMTok: 0.042
+    jevInputUsdPerMTok: 0.042,
+    // Claude Haiku 5.5（Gemini が使えないときの予備）の 100万トークンあたりのドル（入力 10万トークンまでの料金。無料枠は無い）
+    claudeInputUsdPerMTok: 0.10,
+    claudeOutputUsdPerMTok: 0.50
   },
 
   // 文字数の上限など（実機確認の結果で調整する。docs/verification-checklist.md 参照）
