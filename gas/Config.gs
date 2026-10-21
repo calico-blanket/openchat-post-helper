@@ -175,6 +175,8 @@ var APP_CONFIG = {
     llmInputMaxChars: 6000,
     // 入力元ごとの上書き（note は長文が多いので、記事の後半まで踏まえて要約させる）
     llmInputMaxCharsBySource: { note: 20000 },
+    // YouTube の説明欄を AI に渡す最大文字数（URL・ハッシュタグを除いたあと、先頭から切る。宣伝が長い動画の費用を抑える）
+    youtubeDescriptionMaxChars: 2000,
     // Jev に渡す本文の最大文字数（Jev は state＋最長の質問で 32k トークンまで）
     jevInputMaxChars: 8000,
     // 要約ボタンで Gemini に渡す最大文字数

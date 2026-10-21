@@ -222,18 +222,30 @@ function handleAnalyze_(body) {
   var input = normalizeAnalyzeInput_(body);
   var warnings = [];
 
-  var fetched = input.url
-    ? fetchSourceContent_(input.url)
-    : { status: 'none', resolvedUrl: '', text: '', author: '', pageTitle: '', note: '' };
+  // YouTube の URL は、ページ取得（HTTP 429 で断られる）ではなく、YouTube Data API（1回の呼び出し）で
+  // タイトル・説明欄・チャンネル名・公開日をまとめて取る。キー未設定・失敗のときは、従来どおりページ取得に進む
+  var videoId = input.url ? youtubeVideoId_(input.url) : '';
+  var youtubeInfo = videoId ? fetchYoutubeVideo_(videoId) : null;
+  var fetched;
+  if (!input.url) {
+    fetched = { status: 'none', resolvedUrl: '', text: '', author: '', pageTitle: '', note: '' };
+  } else if (youtubeInfo && youtubeInfo.title) {
+    fetched = youtubeFetchedContent_(input.url, youtubeInfo);
+  } else {
+    fetched = fetchSourceContent_(input.url);
+  }
   if (fetched.note) { warnings.push(fetched.note); }
 
   // 追跡用のパラメーターなどを取り除いた URL を、表示・保存・重複チェックに使う
   var cleanedUrl = cleanUrl_(fetched.resolvedUrl || input.url);
-  var postedAt = derivePostedAt_(cleanedUrl, warnings);
+  var postedAt = derivePostedAt_(cleanedUrl, warnings, youtubeInfo);
   var source = input.source ||
     detectSourceFromUrl_(cleanedUrl) ||
     (input.image ? 'flyer' : 'other');
   var original = chooseOriginal_(input.text, fetched.text);
+  // AI に渡す文章。原文があれば原文を使い、無いときだけ YouTube の説明欄（絞ったもの）を使う。
+  // 説明欄はスレッドの原文・保存する原文には入れない（宣伝やリンクが混ざるため）
+  var aiSource = original || fetched.aiText || '';
 
   var result = {
     ok: true,
@@ -261,7 +273,7 @@ function handleAnalyze_(body) {
   };
 
   // 本文も画像もない（Slack の URL だけ等）場合は、API を呼ばずに貼り付けを促す
-  if (!original && !input.image) {
+  if (!aiSource && !input.image) {
     if (result.fetchStatus === 'ok' || result.fetchStatus === 'none') {
       result.fetchStatus = 'needs_paste';
     }
@@ -277,12 +289,13 @@ function handleAnalyze_(body) {
   var limits = APP_CONFIG.limits;
   var categories = getCategories_();
   var tags = getTags_();
-  var useJev = !!jevKey && !!original;
+  var useJev = !!jevKey && !!aiSource;
 
   var analyzeOptions = {
     apiKey: apiKey,
     model: model,
-    text: truncateText_(original, (limits.llmInputMaxCharsBySource || {})[source] || limits.llmInputMaxChars),
+    text: truncateText_(aiSource, (limits.llmInputMaxCharsBySource || {})[source] || limits.llmInputMaxChars),
+    youtubeContext: !original && !!fetched.aiText,
     image: input.image,
     url: result.resolvedUrl,
     source: source,
@@ -294,7 +307,7 @@ function handleAnalyze_(body) {
   if (useJev) {
     requests.push(buildJevRequest_(jevKey, {
       url: result.resolvedUrl,
-      text: truncateText_(original, limits.jevInputMaxChars)
+      text: truncateText_(aiSource, limits.jevInputMaxChars)
     }, categories, tags));
   }
 
@@ -765,8 +778,11 @@ function buildAnalyzeMaterials_(options) {
     '参加 URL（joinUrl）と申込 URL（applyUrl）は、本文に書かれている URL をそのまま書き写してください。本文に無い URL を作ったり推測したりしないでください。',
     '開催場所は、開催形式（attendance）と、対面の場合の短い地名（area）に分けてください。会場名や住所はスレッドの原文に残るので、area には書きません。',
     'テレビ番組への出演・テレビでの放送（BS・地上波を含む。例: 「BS-TBS 報道1930 出演」）は、オンラインではなく attendance を tv にしてください。YouTube やオンライン会議の配信だけの場合は online です。',
+    options.youtubeContext
+      ? '入力は YouTube の動画の「動画のタイトル」と「説明欄」です。タイトルを基準にし、説明欄のうちタイトルに関係する内容だけを読んでください。番組・動画の内容と無関係な宣伝・チャンネルや商品の紹介・他の動画の案内は無視します。残った内容を概略（summaryPoints）に要約してください。説明欄にタイトルと関係する内容が無ければ、タイトルだけから書き、説明欄から推測して補わないでください。'
+      : '',
     '種別の定義:\n' + kindGuide
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   var userText = [
     '入力元: ' + options.source,
@@ -1228,13 +1244,15 @@ function youtubeVideoId_(url) {
 }
 
 /**
- * YouTube Data API（videos.list。1回 1 単位。1日の上限は初期値で 10,000 単位）で、動画の公開日を取る。
+ * YouTube Data API（videos.list。1回 1 単位。1日の上限は初期値で 10,000 単位）で、動画のタイトル・説明欄・
+ * チャンネル名・公開日を1回の呼び出しで取る。
  * キー（スクリプトプロパティ YOUTUBE_API_KEY）が無ければ何もしない。失敗しても例外は投げず、note で知らせる。
- * @returns {{ date: string, note: string }}
+ * @returns {{ title: string, description: string, channelTitle: string, date: string, note: string }}
  */
-function fetchYoutubePostedDate_(videoId) {
+function fetchYoutubeVideo_(videoId) {
+  var info = { title: '', description: '', channelTitle: '', date: '', note: '' };
   var key = getProperty_('YOUTUBE_API_KEY');
-  if (!key || !videoId) { return { date: '', note: '' }; }
+  if (!key || !videoId) { return info; }
   try {
     var response = UrlFetchApp.fetch(
       'https://www.googleapis.com/youtube/v3/videos?part=snippet&id=' + encodeURIComponent(videoId) +
@@ -1243,18 +1261,58 @@ function fetchYoutubePostedDate_(videoId) {
     );
     var code = response.getResponseCode();
     if (code !== 200) {
-      return { date: '', note: 'YouTube の発信日を取得できませんでした（HTTP ' + code + youtubeErrorReason_(response) + '）。入力欄に手で入れられます' };
+      info.note = 'YouTube の情報（発信日・タイトル・説明欄）を取得できませんでした（HTTP ' + code + youtubeErrorReason_(response) + '）。発信日は入力欄に手で入れられます';
+      return info;
     }
     var items = JSON.parse(response.getContentText()).items || [];
-    var published = items.length && items[0].snippet ? String(items[0].snippet.publishedAt || '') : '';
-    if (!published) {
-      return { date: '', note: 'YouTube の動画が見つからないか、非公開のため、発信日を取得できませんでした' };
+    var snippet = items.length && items[0].snippet ? items[0].snippet : null;
+    if (!snippet) {
+      info.note = 'YouTube の動画が見つからないか、非公開のため、発信日を取得できませんでした';
+      return info;
     }
-    var date = msToJstDate_(Date.parse(published));
-    return { date: date, note: date ? '' : 'YouTube の発信日の形式を読み取れませんでした' };
+    info.title = String(snippet.title || '');
+    info.description = String(snippet.description || '');
+    info.channelTitle = String(snippet.channelTitle || '');
+    var published = String(snippet.publishedAt || '');
+    info.date = published ? msToJstDate_(Date.parse(published)) : '';
+    if (!info.date) { info.note = 'YouTube の発信日の形式を読み取れませんでした'; }
+    return info;
   } catch (err) {
-    return { date: '', note: 'YouTube の発信日を取得できませんでした（' + String((err && err.message) || err) + '）' };
+    info.note = 'YouTube の情報（発信日・タイトル・説明欄）を取得できませんでした（' + String((err && err.message) || err) + '）';
+    return info;
   }
+}
+
+/**
+ * YouTube の説明欄を、AI に渡す前に絞る純粋関数。
+ * 宣伝のリンクが申込 URL などに混ざらないよう URL とハッシュタグを取り除き、
+ * リンクの見出しだけになった短い行（「▼公式サイト」など）と連続する空行も捨てて、先頭から maxChars 文字に切る。
+ */
+function cleanYoutubeDescription_(description, maxChars) {
+  var kept = [];
+  String(description || '').replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+    var hadUrl = /https?:\/\/|www\./i.test(line);
+    var text = line.replace(/(?:https?:\/\/|www\.)\S+/gi, '').replace(/(^|\s)[#＃]\S+/g, '$1').trim();
+    if (hadUrl && text.length < 20) { return; }
+    if (!text && (!kept.length || !kept[kept.length - 1])) { return; }
+    kept.push(text);
+  });
+  return truncateText_(kept.join('\n').trim(), maxChars);
+}
+
+/** YouTube の API の結果から、analyze の「URL から取った内容」を作る。本文（text）は空のまま、AI に渡す文章（aiText）だけを持つ */
+function youtubeFetchedContent_(url, info) {
+  var maxChars = APP_CONFIG.limits.youtubeDescriptionMaxChars || 2000;
+  var description = cleanYoutubeDescription_(info.description, maxChars);
+  return {
+    status: 'ok',
+    resolvedUrl: url,
+    text: '',
+    aiText: ['動画のタイトル: ' + info.title, description ? '説明欄:\n' + description : ''].filter(Boolean).join('\n\n'),
+    author: info.channelTitle,
+    pageTitle: info.title,
+    note: ''
+  };
 }
 
 /** YouTube Data API のエラー応答から、原因の名前（accessNotConfigured・keyInvalid・quotaExceeded など）を取り出す。読めなければ空文字 */
@@ -1269,13 +1327,14 @@ function youtubeErrorReason_(response) {
 }
 
 /** URL から発信日を求める。失敗しても analyze 全体は止めない（空文字を返し、必要なら warnings に足す） */
-function derivePostedAt_(url, warnings) {
+function derivePostedAt_(url, warnings, youtubeInfo) {
   try {
     var date = postedDateFromUrl_(url);
     if (date) { return date; }
     var videoId = youtubeVideoId_(url);
     if (!videoId) { return ''; }
-    var result = fetchYoutubePostedDate_(videoId);
+    // analyze がすでに YouTube の API を呼んでいれば、その結果を使う（2回呼ばない）
+    var result = youtubeInfo || fetchYoutubeVideo_(videoId);
     if (result.note) { warnings.push(result.note); }
     return result.date;
   } catch (err) {
@@ -2289,7 +2348,9 @@ function testYoutube() {
   );
   Logger.log('HTTP ' + response.getResponseCode() + youtubeErrorReason_(response));
   Logger.log('応答: ' + String(response.getContentText()).replace(key, '(キー)').slice(0, 800));
-  Logger.log('発信日の判定: ' + (fetchYoutubePostedDate_('jNQXAC9IVRw').date || '(取れませんでした)'));
+  var info = fetchYoutubeVideo_('jNQXAC9IVRw');
+  Logger.log('発信日の判定: ' + (info.date || '(取れませんでした)'));
+  Logger.log('タイトル: ' + (info.title || '(取れませんでした)') + ' ／ 説明欄の長さ: ' + info.description.length + '字 ／ チャンネル: ' + (info.channelTitle || '(取れませんでした)'));
 }
 
 /**

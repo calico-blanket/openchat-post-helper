@@ -130,7 +130,12 @@ function fakeFetch(url, params) {
     });
   }
   if (url.startsWith('https://www.googleapis.com/youtube/v3/videos')) {
-    return fakeResponse(200, { items: [{ snippet: { publishedAt: '2026-09-20T03:00:00Z' } }] });
+    return fakeResponse(200, { items: [{ snippet: {
+      publishedAt: '2026-09-20T03:00:00Z',
+      title: '開発用の動画：街頭演説の様子',
+      channelTitle: '開発用チャンネル',
+      description: '10月3日19時から、神戸駅前で街頭演説を行います。\n▼チャンネル登録 https://example.com/subscribe\n#開発用'
+    } }] });
   }
   if (url.startsWith('https://note.com/api/v3/notes/')) {
     return fakeResponse(200, { data: {
