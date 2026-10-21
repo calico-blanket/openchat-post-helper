@@ -324,7 +324,8 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+// 自分の PC からだけ開けるようにする（同じネットワークの他の端末からは見えない）
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`開発サーバー起動: http://localhost:${PORT}/`);
   console.log(`設定画面: GAS の URL = http://localhost:${PORT}/mock-gas ／ 合言葉 = ${DEV_TOKEN}`);
 });
