@@ -226,6 +226,18 @@ test('buildThreadPrefix: 全文と抜粋で書き分け、「（全文）」は�
   assert.strictEqual(L.buildThreadPrefix({ threadPrefixes: { slack: '旧: Slack', other: '旧' } }, 'slack', '', false, 'excerpt'), '旧: Slack');
 });
 
+test('normalizeUrl: 日本語の文ごとコピーしたとき、全角の句読点・かっこ以降を URL に含めない', () => {
+  assert.strictEqual(
+    L.normalizeUrl('https://m.youtube.com/watch?v=MJk8JDTUoGE）で「文章を整える」を押して確認'),
+    'https://m.youtube.com/watch?v=MJk8JDTUoGE'
+  );
+  assert.strictEqual(L.normalizeUrl('https://example.com/a。次の文'), 'https://example.com/a');
+  assert.strictEqual(L.normalizeUrl('https://example.com/a、b'), 'https://example.com/a');
+  // ふつうの URL（日本語のパス・かっこ以外の記号）は変えない
+  assert.strictEqual(L.normalizeUrl('https://ja.wikipedia.org/wiki/日本'), 'https://ja.wikipedia.org/wiki/日本');
+  assert.strictEqual(L.normalizeUrl('https://example.com/a(b)?c=1#d'), 'https://example.com/a(b)?c=1#d');
+});
+
 test('normalizeUrl: https:// を補い、空白や %20 を取り除き、URL でないものは変えない', () => {
   assert.strictEqual(L.normalizeUrl('meet.google.com/nrg-dicq-brn'), 'https://meet.google.com/nrg-dicq-brn');
   assert.strictEqual(L.normalizeUrl('https://%20meet.google.com/nrg-dicq-brn'), 'https://meet.google.com/nrg-dicq-brn');

@@ -374,7 +374,10 @@
     var s = String(text || '').trim();
     if (!s) { return ''; }
     s = s.replace(/^(https?:\/\/)(?:\s|%20)+/i, '$1');
-    if (/^https?:\/\//i.test(s)) { return s; }
+    if (/^https?:\/\//i.test(s)) {
+      // 日本語の文の中から URL ごとコピーしたとき、全角の句読点・かっこ以降（「）で…」など）を URL に含めない
+      return s.replace(/[。、「」『』（）　].*$/, '');
+    }
     if (/^[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)*\.[a-z]{2,}(:\d+)?([/?#]\S*)?$/i.test(s)) {
       return 'https://' + s;
     }
