@@ -1755,6 +1755,110 @@ test('analyze: YouTube の API が失敗・動画なしでも analyze は成功�
   }
 });
 
+test('cleanYoutubeDescription_: URL・ハッシュタグ・リンクの見出しだけの行を取り除き、連続する空行をまとめ、上限で切る', () => {
+  const context = load().context;
+  const description = [
+    '安野党首に、AI 時代の政治について聞きました。',
+    '',
+    '',
+    '▼公式サイト https://example.com/shop',
+    'https://example.com/only-url',
+    '番組の詳しい内容は、概要のとおりです。 #AI #政治',
+    '＃全角ハッシュタグ',
+    'お問い合わせは www.example.com/contact まで。この行は長いので、URL を取り除いても残る'
+  ].join('\r\n');
+  const cleaned = context.cleanYoutubeDescription_(description, 2000);
+  assert.strictEqual(cleaned, [
+    '安野党首に、AI 時代の政治について聞きました。',
+    '',
+    '番組の詳しい内容は、概要のとおりです。',
+    '',
+    'お問い合わせは  まで。この行は長いので、URL を取り除いても残る'
+  ].join('\n'));
+  assert.ok(!/https?:|www\./.test(cleaned), 'URL は残さない');
+  assert.strictEqual(context.cleanYoutubeDescription_('あ'.repeat(50), 10), 'あ'.repeat(10));
+  assert.strictEqual(context.cleanYoutubeDescription_('', 10), '');
+});
+
+/** YouTube の API（タイトル・説明欄つき）・ページ取得・Gemini の呼び出しを区別して記録する偽の通信 */
+function youtubeContentEnv(snippet, props) {
+  const log = { youtube: 0, page: 0, gemini: [] };
+  const env = load({
+    props: Object.assign({ YOUTUBE_API_KEY: 'yt-key' }, props || {}),
+    fetch: (url, params) => {
+      if (url.indexOf('googleapis.com/youtube/v3/videos') !== -1) {
+        log.youtube++;
+        return res(200, { items: [{ snippet }] });
+      }
+      if (url.indexOf('generativelanguage') !== -1) {
+        log.gemini.push(JSON.parse(params.payload));
+        return geminiRes(geminiAnalyze({ title: '安野党首が語る AI と政治', attendance: 'online', area: '' }));
+      }
+      log.page++;
+      throw new Error('YouTube のページは取得しないはず');
+    }
+  });
+  env.log = log;
+  return env;
+}
+
+const YOUTUBE_SNIPPET = {
+  title: 'AI QUEST：安野さんに聞く',
+  description: '安野党首に、AI 時代の政治について聞きました。\n▼チャンネル登録 https://example.com/sub\n#AI',
+  channelTitle: 'AI QUEST チャンネル',
+  publishedAt: '2026-10-02T20:30:00Z'
+};
+
+test('analyze: YouTube の URL は API のタイトル・説明欄を AI に渡す（ページは取らない・API は1回・原文には入れない）', () => {
+  const env = youtubeContentEnv(YOUTUBE_SNIPPET);
+  const r = post(env, { action: 'analyze', url: 'https://m.youtube.com/watch?v=MJk8JDTUoGE' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(env.log.youtube, 1, '発信日と同じ1回の呼び出しで足りる');
+  assert.strictEqual(env.log.page, 0);
+  assert.strictEqual(r.postedAt, '2026-10-03');
+  assert.strictEqual(r.author, 'AI QUEST チャンネル');
+  assert.strictEqual(r.fetchStatus, 'ok');
+  assert.strictEqual(r.originalText, '', '説明欄はスレッドの原文に入れない');
+  assert.strictEqual(r.analyzed, true);
+
+  const request = env.log.gemini[0];
+  const userText = request.contents[0].parts[0].text;
+  assert.match(userText, /動画のタイトル: AI QUEST：安野さんに聞く/);
+  assert.match(userText, /AI 時代の政治について聞きました/);
+  assert.ok(!/https?:|#AI/.test(userText.split('本文:')[1]), '説明欄の URL・ハッシュタグは AI に渡さない（動画自身の URL の行は別）');
+  assert.match(request.systemInstruction.parts[0].text, /タイトルを基準にし/);
+});
+
+test('analyze: YouTube の説明欄に URL しかなくても（タイトルだけでも）AI に渡して整える', () => {
+  const env = youtubeContentEnv({ title: '短い動画', description: 'https://example.com/a\nhttps://example.com/b', channelTitle: 'ch', publishedAt: '2026-10-02T20:30:00Z' });
+  const r = post(env, { action: 'analyze', url: 'https://youtu.be/MJk8JDTUoGE' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.strictEqual(r.analyzed, true);
+  assert.strictEqual(r.originalText, '');
+  const userText = env.log.gemini[0].contents[0].parts[0].text;
+  assert.match(userText, /動画のタイトル: 短い動画/);
+  assert.ok(!/説明欄:/.test(userText), '残る説明が無ければ説明欄の見出しも付けない');
+});
+
+test('analyze: YouTube の URL でも本文を貼り付けていれば、貼り付けを優先する（説明欄は AI に渡さず、指示も足さない）', () => {
+  const env = youtubeContentEnv(YOUTUBE_SNIPPET);
+  const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=MJk8JDTUoGE', text: '貼り付けた本文です' });
+  assert.strictEqual(r.originalText, '貼り付けた本文です');
+  assert.strictEqual(r.postedAt, '2026-10-03', '発信日は API から入れる');
+  const request = env.log.gemini[0];
+  assert.match(request.contents[0].parts[0].text, /貼り付けた本文です/);
+  assert.ok(!/AI 時代の政治/.test(request.contents[0].parts[0].text));
+  assert.ok(!/タイトルを基準にし/.test(request.systemInstruction.parts[0].text));
+});
+
+test('analyze: 説明欄は youtubeDescriptionMaxChars で切る', () => {
+  const env = youtubeContentEnv({ title: '長い説明', description: 'あ'.repeat(5000), channelTitle: 'ch', publishedAt: '2026-10-02T20:30:00Z' });
+  const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=MJk8JDTUoGE' });
+  assert.strictEqual(r.ok, true, r.error);
+  const userText = env.log.gemini[0].contents[0].parts[0].text;
+  assert.strictEqual(userText.split('あ').length - 1, 2000);
+});
+
 test('保存・更新・検索: 発信日を保存して読み戻し、不正な日付は断る。空のままの古い記録も読める', () => {
   const env = load();
   const saved = post(env, validPost({ postedAt: '2026-10-03' }));

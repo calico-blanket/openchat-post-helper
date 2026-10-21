@@ -45,8 +45,8 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 | `resolvedUrl` | 短縮 URL などを解決し、追跡用パラメーターを取り除いた URL（Amazon は `/dp/商品番号` の形） |
 | `postedAt` | 発信日（日本時間の `YYYY-MM-DD`。分からなければ空）。X・Instagram・Threads・Slack は URL の番号から計算し、YouTube は `YOUTUBE_API_KEY` があれば YouTube Data API（`videos.list`、1 単位）で公開日を取る。取得に失敗しても analyze は成功し、YouTube の失敗は `warnings` に出す |
 | `fetchStatus` | `ok`（取得できた）／`needs_paste`（本文の貼り付けが必要）／`none`（URL なし） |
-| `author` | X・note の発信者名 |
-| `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章 |
+| `author` | X・note の発信者名。YouTube は、`YOUTUBE_API_KEY` があればチャンネル名 |
+| `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章。YouTube の説明欄は、AI に渡すだけで、ここには入れない（本文を貼らなければ空） |
 | `originalFromImage` | 原文が画像からの読み取りか |
 | `title` `summary` `kind` | タイトル、概略、種別（`schedule`／`article`／`legislator`） |
 | `event` | `{ date, startTime, endTime, place, deadline, performers }`（日付は ISO の絶対日付。曜日は返さない。`place` は「対面（高崎）＆オンライン」のような短い表記で、AI が返す開催形式と地名から `Config.gs` の `placeLabels` で組み立てる） |
