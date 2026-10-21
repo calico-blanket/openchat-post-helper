@@ -382,7 +382,8 @@ function handleAnalyze_(body) {
     if (!proposed) { return; }
     var found = findUrlInText_(proposed, urlSourceText);
     result.event[pair[0]] = found ? cleanUrl_(found) : '';
-    if (!found) {
+    // 入力した動画・投稿自身の URL を返しただけなら、外すだけで警告は出さない（YouTube は説明欄を原文に入れないため）
+    if (!found && cleanUrl_(proposed) !== cleanedUrl) {
       warnings.push('AI が示した' + pair[1] + 'は原文に見つからなかったため、外しました（' + proposed + '）');
     }
   });

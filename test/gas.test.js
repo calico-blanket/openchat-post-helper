@@ -1851,6 +1851,25 @@ test('analyze: YouTube の URL でも本文を貼り付けていれば、貼り�
   assert.ok(!/タイトルを基準にし/.test(request.systemInstruction.parts[0].text));
 });
 
+test('analyze: AI が動画自身の URL を参加 URL として返しても、外すだけで警告は出さない（別の URL は警告する）', () => {
+  const run = (joinUrl) => {
+    const env = load({
+      props: { YOUTUBE_API_KEY: 'yt-key' },
+      fetch: (url) => {
+        if (url.indexOf('googleapis.com/youtube/v3/videos') !== -1) { return res(200, { items: [{ snippet: YOUTUBE_SNIPPET }] }); }
+        return geminiRes(geminiAnalyze({ joinUrl }));
+      }
+    });
+    return post(env, { action: 'analyze', url: 'https://m.youtube.com/watch?v=MJk8JDTUoGE' });
+  };
+  const own = run('https://m.youtube.com/watch?v=MJk8JDTUoGE');
+  assert.strictEqual(own.event.joinUrl, '');
+  assert.ok(!Array.from(own.warnings).some((w) => /参加 URL/.test(w)), '自分自身の URL は警告しない');
+  const other = run('https://zoom.us/j/999');
+  assert.strictEqual(other.event.joinUrl, '');
+  assert.ok(Array.from(other.warnings).some((w) => /参加 URL/.test(w)), '原文に無い別の URL は警告する');
+});
+
 test('analyze: 説明欄は youtubeDescriptionMaxChars で切る', () => {
   const env = youtubeContentEnv({ title: '長い説明', description: 'あ'.repeat(5000), channelTitle: 'ch', publishedAt: '2026-10-02T20:30:00Z' });
   const r = post(env, { action: 'analyze', url: 'https://www.youtube.com/watch?v=MJk8JDTUoGE' });
