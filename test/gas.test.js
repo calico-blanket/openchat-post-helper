@@ -1163,6 +1163,14 @@ test('analyze: 参加URL・申込URL は原文にあるものだけ残し（整�
   assert.match(JSON.parse(env.calls[0].payload).systemInstruction.parts[0].text, /本文に無い URL を作ったり推測したりしないで/);
 });
 
+test('analyze の指示: 収録日は開催日にしない・タイトルに団体名を付けない', () => {
+  const env = load({ fetch: () => geminiRes(geminiAnalyze({})) });
+  post(env, { action: 'analyze', text: '本文' });
+  const system = JSON.parse(env.calls[0].payload).systemInstruction.parts[0].text;
+  assert.match(system, /収録日・配信日・公開日.*開催日ではありません/);
+  assert.match(system, /タイトル（title）に「チームみらい」などの団体名を付けないでください/);
+});
+
 test('findUrlInText_: 追跡用パラメーターや末尾の句読点の違いは同じ URL とみなす', () => {
   const { context } = load();
   const f = context.findUrlInText_;
