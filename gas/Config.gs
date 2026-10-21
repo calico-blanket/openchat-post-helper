@@ -68,6 +68,8 @@ var APP_CONFIG = {
     detailsLine: '詳細はスレッドにて ➡️',
     // スレッドを使わないとき（トーク本体だけで完結させるとき）の結び。{url} は整えた URL。URL が無ければ出さない
     linkLine: '全文はこちら ⬇️\n{url}',
+    // 元の URL が YouTube の動画のとき（本文ではなく動画なので「全文」とは言わない）
+    videoLinkLine: '動画はこちら ⬇️\n{url}',
     // 日時行。{relative} は「本日」「明日」（コピーする時点で計算。どちらでもなければ空）
     dateLine: '📅 {relative}{date}{time}',
     placeLine: '📍 {place}',
