@@ -448,6 +448,25 @@ test('defaultUseThread: note・一般の Web 記事はスレッドなし、ロ�
   assert.strictEqual(L.defaultUseThread(CONFIG, '未知の入力元', 'https://example.com/'), true);
 });
 
+test('isYoutubeUrl / buildTalkBody: YouTube の URL のときだけ、結びを「動画はこちら ⬇️」にする（設定で変えられる）', () => {
+  ['https://www.youtube.com/watch?v=abc', 'https://m.youtube.com/watch?v=abc', 'https://youtu.be/abc',
+    'https://www.youtube.com/live/abc', 'https://music.youtube.com/watch?v=abc'].forEach((u) => {
+    assert.strictEqual(L.isYoutubeUrl(u), true, u);
+  });
+  ['https://notyoutube.com/watch?v=abc', 'https://note.com/a/n/n1', 'https://example.com/?u=youtube.com', '', 'youtube.com/watch?v=abc'].forEach((u) => {
+    assert.strictEqual(L.isYoutubeUrl(u), false, u);
+  });
+
+  const post = { title: '動画', summary: '・要点', kind: 'article', source: 'other', author: '', url: 'https://m.youtube.com/watch?v=MJk8JDTUoGE', useThread: false };
+  const talk = L.buildTalkBody(post, CONFIG, '2026-10-04');
+  assert.ok(talk.endsWith('動画はこちら ⬇️\nhttps://m.youtube.com/watch?v=MJk8JDTUoGE'), talk);
+  assert.ok(!talk.includes('全文はこちら'));
+  const custom = L.buildTalkBody(post, { ...CONFIG, talk: { ...CONFIG.talk, videoLinkLine: 'YouTube はこちら ⬇️\n{url}' } }, '2026-10-04');
+  assert.ok(custom.endsWith('YouTube はこちら ⬇️\nhttps://m.youtube.com/watch?v=MJk8JDTUoGE'));
+  const note = L.buildTalkBody(Object.assign({}, post, { url: 'https://note.com/a/n/n1' }), CONFIG, '2026-10-04');
+  assert.ok(note.endsWith('全文はこちら ⬇️\nhttps://note.com/a/n/n1'));
+});
+
 test('buildTalkBody: スレッドなしなら結びを「全文はこちら ⬇️」＋ URL にし、URL が無ければ結びを出さない', () => {
   const post = {
     title: '国会対策一年史', summary: '・要点1\n・要点2', kind: 'article', source: 'note', author: '須田',

@@ -74,6 +74,14 @@
     return '';
   }
 
+  /** YouTube の URL（youtube.com・youtu.be・youtube-nocookie.com。m. や www. 付きも）か */
+  function isYoutubeUrl(url) {
+    var m = String(url || '').match(/^https?:\/\/([^/?#]+)/i);
+    if (!m) { return false; }
+    var host = m[1].toLowerCase().replace(/^www\./, '').replace(/^m\./, '').replace(/^music\./, '');
+    return host === 'youtube.com' || host === 'youtu.be' || host === 'youtube-nocookie.com';
+  }
+
   /**
    * 「スレッドにも投稿する」の初期値を決める。
    * URL が無ければ常に true（トーク本体からリンクで誘導できないため）。
@@ -302,7 +310,13 @@
     if (sourceLine) { tail.push(sourceLine); }
     if (post.useThread === false) {
       var url = String(post.url || '').trim();
-      if (url) { tail.push(fillTemplate(talk.linkLine || '全文はこちら ⬇️\n{url}', { url: url })); }
+      if (url) {
+        // YouTube は本文ではなく動画なので、「全文」ではなく「動画」と案内する
+        var linkLine = isYoutubeUrl(url)
+          ? (talk.videoLinkLine || '動画はこちら ⬇️\n{url}')
+          : (talk.linkLine || '全文はこちら ⬇️\n{url}');
+        tail.push(fillTemplate(linkLine, { url: url }));
+      }
     } else if (talk.detailsLine) {
       tail.push(talk.detailsLine);
     }
@@ -939,6 +953,7 @@
     moveArrayItem: moveArrayItem,
     normalizeUrl: normalizeUrl,
     isValidUrl: isValidUrl,
+    isYoutubeUrl: isYoutubeUrl,
     stripEmojiNames: stripEmojiNames,
     countEmojiNames: countEmojiNames
   };
