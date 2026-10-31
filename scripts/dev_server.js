@@ -129,6 +129,9 @@ function fakeFetch(url, params) {
       html: '<blockquote><p lang="ja">明日19時から神戸駅前で街頭演説を行います。<br>日時: 明日 19:00〜<br>ぜひお越しください！</p>&mdash; 山田太郎</blockquote>'
     });
   }
+  if (url.startsWith('https://api.fxtwitter.com/')) {
+    return fakeResponse(200, { code: 200, tweet: { text: '開発用の全文です。\n\n長い投稿の続きをここに書きます。', author: { name: '山田太郎' } } });
+  }
   if (url.startsWith('https://www.googleapis.com/youtube/v3/videos')) {
     return fakeResponse(200, { items: [{ snippet: {
       publishedAt: '2026-09-20T03:00:00Z',
