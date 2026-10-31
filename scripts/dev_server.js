@@ -240,6 +240,10 @@ function createGasContext() {
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       getUuid: () => require('node:crypto').randomUUID(),
+      // 本物と同じく、符号つきのバイト列（-128〜127）で返す
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (algorithm, value) => Array.from(require('node:crypto').createHash('sha256').update(String(value), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b)),
       // 開発サーバーでは待たない（Gemini のやり直しの待ち時間）
       sleep: () => {},
       formatDate: (date, tz, pattern) => {

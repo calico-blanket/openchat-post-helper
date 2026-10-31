@@ -915,6 +915,39 @@
     return next;
   }
 
+  // ---- 招待リンク（入力する人に、URL と合言葉をまとめて渡す） ----------------
+
+  var GAS_URL_PATTERN = /^(https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec|http:\/\/localhost(:\d+)?\/mock-gas)$/;
+
+  /**
+   * 招待リンクを作る。URL と合言葉は「#」より後ろ（フラグメント）に入れる。
+   * フラグメントはブラウザがサーバー（Vercel など）に送らないので、アクセスの記録に残らない。
+   */
+  function buildInviteLink(origin, gasUrl, token) {
+    var json = JSON.stringify({ u: String(gasUrl), t: String(token) });
+    var base64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return String(origin).replace(/\/+$/, '') + '/#invite=' + base64;
+  }
+
+  /**
+   * 招待リンクの「#」以降を読む。形が正しくなければ null。
+   * GAS の URL は、設定画面と同じ形のものだけを受け付ける（知らない相手の URL に接続させないため）。
+   */
+  function parseInviteHash(hash) {
+    var match = /^#invite=([A-Za-z0-9_-]+)$/.exec(String(hash || ''));
+    if (!match) { return null; }
+    try {
+      var base64 = match[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) { base64 += '='; }
+      var data = JSON.parse(atob(base64));
+      if (!data || typeof data.u !== 'string' || typeof data.t !== 'string') { return null; }
+      if (!GAS_URL_PATTERN.test(data.u) || !data.t || data.t.length > 200) { return null; }
+      return { gasUrl: data.u, token: data.t };
+    } catch (e) {
+      return null;
+    }
+  }
+
   return {
     parseSharedParams: parseSharedParams,
     detectSource: detectSource,
@@ -951,6 +984,8 @@
     archiveFacets: archiveFacets,
     archiveDateLabel: archiveDateLabel,
     moveArrayItem: moveArrayItem,
+    buildInviteLink: buildInviteLink,
+    parseInviteHash: parseInviteHash,
     normalizeUrl: normalizeUrl,
     isValidUrl: isValidUrl,
     isYoutubeUrl: isYoutubeUrl,

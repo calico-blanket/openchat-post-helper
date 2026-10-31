@@ -761,3 +761,37 @@ test('buildArchiveView: 発信日の並べ替え。新しい順でも古い順�
   const asc = L.buildArchiveView(items, { sortKey: 'posted', dir: 'asc', today: '2026-10-19' });
   assert.deepStrictEqual(titles(asc), ['去年', '9月', '10月', '空']);
 });
+
+// ---- 招待リンク -----------------------------------------------------
+
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxExample123/exec';
+
+test('招待リンク: 作ったものを読むと、URL と合言葉が戻る。合言葉は「#」より後ろにだけ入る', () => {
+  const link = L.buildInviteLink('https://openchat-post-helper.vercel.app/', GAS_URL, 'abc123-def');
+  assert.ok(link.startsWith('https://openchat-post-helper.vercel.app/#invite='), link);
+  assert.ok(!link.split('#')[0].includes('abc123'), '合言葉が # より前（サーバーに送られる部分）に入ってはいけない');
+  assert.ok(!link.includes('?'), '合言葉をクエリに入れない');
+  assert.deepStrictEqual(L.parseInviteHash('#' + link.split('#')[1]), { gasUrl: GAS_URL, token: 'abc123-def' });
+});
+
+test('招待リンク: 開発サーバーの URL も通る。+ / = が出る長さでも戻る', () => {
+  const dev = 'http://localhost:8765/mock-gas';
+  for (const token of ['a', 'ab', 'abc', '???>>>', '~~~~~~~~~~~~~~']) {
+    const hash = '#' + L.buildInviteLink('https://x.example', dev, token).split('#')[1];
+    assert.ok(/^#invite=[A-Za-z0-9_-]+$/.test(hash), hash);
+    assert.deepStrictEqual(L.parseInviteHash(hash), { gasUrl: dev, token });
+  }
+});
+
+test('招待リンク: 形が違う・知らない URL・空の合言葉・壊れたものは null', () => {
+  const enc = (obj) => '#invite=' + Buffer.from(JSON.stringify(obj)).toString('base64url');
+  assert.strictEqual(L.parseInviteHash(''), null);
+  assert.strictEqual(L.parseInviteHash('#other=abc'), null);
+  assert.strictEqual(L.parseInviteHash('#invite=@@@'), null);
+  assert.strictEqual(L.parseInviteHash('#invite=' + Buffer.from('not json').toString('base64url')), null);
+  assert.strictEqual(L.parseInviteHash(enc({ u: 'https://evil.example/exec', t: 'x' })), null, '知らない URL には接続させない');
+  assert.strictEqual(L.parseInviteHash(enc({ u: GAS_URL, t: '' })), null);
+  assert.strictEqual(L.parseInviteHash(enc({ u: GAS_URL })), null);
+  assert.strictEqual(L.parseInviteHash(enc({ u: GAS_URL, t: 'x'.repeat(201) })), null);
+  assert.deepStrictEqual(L.parseInviteHash(enc({ u: GAS_URL, t: 'ok' })), { gasUrl: GAS_URL, token: 'ok' });
+});
