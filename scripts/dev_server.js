@@ -57,7 +57,7 @@ function fakeGeminiAnalyze(payload) {
   const start = text.match(/開催日時（開始）：\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
   const end = text.match(/開催日時（終了）：\s*\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2})/);
   const hybrid = /現地|対面/.test(text) && /オンライン/.test(text);
-  const area = (text.match(/高崎|神戸|渋谷/) || [''])[0];
+  const area = (text.match(/神戸|渋谷/) || [''])[0];
   const result = {
     title: (lines[0] || 'チラシの告知').replace(/^【[^】]*】\s*/, '').slice(0, 30),
     summaryPoints: lines.slice(1, 4).length ? lines.slice(1, 4) : ['チラシの内容'],

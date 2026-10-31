@@ -875,16 +875,16 @@ test('analyze: 古い形式（概略が文字列）で返ってきても箇条�
   assert.strictEqual(post(env, { action: 'analyze', text: '本文' }).summary, '・配信を行います\n・アーカイブも残します');
 });
 
-test('analyze: 場所は開催形式と地名から「対面（高崎）＆オンライン」の形に組み立てる', () => {
+test('analyze: 場所は開催形式と地名から「対面（渋谷）＆オンライン」の形に組み立てる', () => {
   const cases = [
-    [{ attendance: 'hybrid', area: '高崎' }, '対面（高崎）＆オンライン'],
+    [{ attendance: 'hybrid', area: '渋谷' }, '対面（渋谷）＆オンライン'],
     [{ attendance: 'hybrid', area: '' }, '対面＆オンライン'],
     [{ attendance: 'in_person', area: '神戸三宮' }, '対面（神戸三宮）'],
     [{ attendance: 'in_person', area: '' }, '対面'],
-    [{ attendance: 'online', area: '高崎' }, 'オンライン'],
+    [{ attendance: 'online', area: '渋谷' }, 'オンライン'],
     [{ attendance: 'tv', area: '' }, 'テレビ'],
     [{ attendance: 'tv', area: '東京' }, 'テレビ'],
-    [{ attendance: 'unknown', area: '高崎' }, '高崎'],
+    [{ attendance: 'unknown', area: '渋谷' }, '渋谷'],
     [{ attendance: 'unknown', area: '' }, '']
   ];
   for (const [input, expected] of cases) {
@@ -1258,7 +1258,7 @@ test('記録の一覧: 公開してよい項目だけを新しい順に返し、
   post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: '秘密のメモ' }));
   post(env, validPost({
     url: 'https://example.com/new', title: '新しい', memo: '秘密のメモ2', author: '運営アカウント',
-    kind: 'schedule', source: 'note', eventIso: '2026-10-24T13:00+09:00', place: '対面（高崎）＆オンライン',
+    kind: 'schedule', source: 'note', eventIso: '2026-10-24T13:00+09:00', place: '対面（渋谷）＆オンライン',
     talk: 'トーク本文', original: '原文', joinUrl: 'https://www.youtube.com/live/abc', applyUrl: 'https://forms.gle/x'
   }));
   const r = getArchive(env);
@@ -1296,14 +1296,14 @@ test('toPublicItem_: トーク本文から「詳細はスレッドにて ➡️�
   const { context } = load();
   const base = { kind: 'article', source: 'slack', tags: [] };
   const pub = (talk) => context.toPublicItem_(Object.assign({}, base, { talk })).talk;
-  assert.strictEqual(pub('【勉強会】\n・高崎で開催\n\n詳細はスレッドにて ➡️'), '【勉強会】\n・高崎で開催');
-  assert.strictEqual(pub('【勉強会】\n・高崎で開催\n詳細はスレッドで➡'), '【勉強会】\n・高崎で開催');
+  assert.strictEqual(pub('【勉強会】\n・渋谷で開催\n\n詳細はスレッドにて ➡️'), '【勉強会】\n・渋谷で開催');
+  assert.strictEqual(pub('【勉強会】\n・渋谷で開催\n詳細はスレッドで➡'), '【勉強会】\n・渋谷で開催');
   assert.strictEqual(
     pub('【勉強会】\n全文はこちら ⬇️\nhttps://example.com/a'),
     '【勉強会】\n全文はこちら ⬇️\nhttps://example.com/a',
     '「全文はこちら」とその下の URL は残す'
   );
-  assert.strictEqual(pub('📅 21:20〜\n📍 高崎'), '📅 21:20〜\n📍 高崎', '結びが無ければ変えない');
+  assert.strictEqual(pub('📅 21:20〜\n📍 渋谷'), '📅 21:20〜\n📍 渋谷', '結びが無ければ変えない');
   assert.strictEqual(pub(''), '');
   assert.strictEqual(
     context.toPublicItem_(Object.assign({}, base, { original: '原文\n詳細はスレッドにて ➡️' })).original,
@@ -1464,7 +1464,7 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: 'コメント1' }));
   const r = post(env, validPost({
     url: 'https://example.com/new', title: '新しい', memo: 'コメント2', author: '運営アカウント', kind: 'schedule',
-    eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', deadline: '2026-10-20', place: '対面（高崎）＆オンライン',
+    eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', deadline: '2026-10-20', place: '対面（渋谷）＆オンライン',
     talk: 'トーク本文はここ', original: '原文', tags: [], joinUrl: 'https://www.youtube.com/live/abc'
   }));
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, count: 2 });
@@ -2136,7 +2136,7 @@ test('testClaude: 未設定なら案内を出し、設定済みなら HTTP の�
   assert.ok(!logs.join('\n').includes('claude-secret-key'));
   // 構造化出力の試し: 偽の Claude が、整えた結果の JSON を返せば、読み取れた結果がログに出る
   const logs3 = [];
-  const env3 = fallbackEnv({ claude: () => claudeRes(geminiAnalyze({ title: '勉強会', attendance: 'hybrid', area: '高崎' })) });
+  const env3 = fallbackEnv({ claude: () => claudeRes(geminiAnalyze({ title: '勉強会', attendance: 'hybrid', area: '渋谷' })) });
   env3.context.Logger = { log: (m) => logs3.push(String(m)) };
   env3.context.testClaude();
   assert.ok(logs3.some((l) => /文章を整える形式（構造化出力）: HTTP 200/.test(l)), logs3.join('|'));

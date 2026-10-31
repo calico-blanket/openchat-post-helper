@@ -49,7 +49,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 | `originalText` | 原文（**加工しない**）。共有された本文と取得した本文のうち長いほう。画像だけなら画像から読み取った文章。YouTube の説明欄は、AI に渡すだけで、ここには入れない（本文を貼らなければ空） |
 | `originalFromImage` | 原文が画像からの読み取りか |
 | `title` `summary` `kind` | タイトル、概略、種別（`schedule`／`article`／`legislator`） |
-| `event` | `{ date, startTime, endTime, place, deadline, performers }`（日付は ISO の絶対日付。曜日は返さない。`place` は「対面（高崎）＆オンライン」のような短い表記で、AI が返す開催形式と地名から `Config.gs` の `placeLabels` で組み立てる） |
+| `event` | `{ date, startTime, endTime, place, deadline, performers }`（日付は ISO の絶対日付。曜日は返さない。`place` は「対面＆オンライン」のような短い表記で、AI が返す開催形式と地名から `Config.gs` の `placeLabels` で組み立てる） |
 | `imageText` `flyerWeekday` | 画像から読み取った文字と、チラシに書かれた曜日（1文字） |
 | `kind` `category` `tags` の決め方 | Gemini が毎回判定し、Jev のキーがあれば Jev の判定を優先する（Jev が失敗・判定できなければ Gemini の値）。種別が決まらず開催日があれば `schedule` |
 | `category` `tags` | 分類 |
