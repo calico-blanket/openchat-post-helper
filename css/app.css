@@ -73,21 +73,26 @@ body {
   padding: 8px 16px;
 }
 .app-title { margin: 0 0 4px; font-weight: 700; }
-/* アプリ名と「使い方」のリンクを1行に並べる（狭いときはリンクが次の行の右端に回る） */
+/*
+ * アプリ名と「使い方」のリンクを1行に並べる。文字を大きく設定したスマホでも収まるよう、
+ * どちらも少し小さめにする。それでも入りきらないときは、リンクを次の行に回さず、アプリ名を折り返す。
+ */
 .app-title-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0 12px;
+  gap: 12px;
 }
-.app-title-row .app-title { margin: 0; }
+.app-title-row .app-title { margin: 0; min-width: 0; font-size: 0.85rem; }
 .header-link {
   display: inline-flex;
+  flex: none;
   align-items: center;
   min-height: 44px;
-  margin-left: auto;
   padding: 0 4px;
+  font-size: 0.9rem;
+  white-space: nowrap;
   color: #fff;
   text-decoration: underline;
   text-underline-offset: 3px;
