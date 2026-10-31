@@ -766,21 +766,28 @@ test('buildArchiveView: 発信日の並べ替え。新しい順でも古い順�
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbxExample123/exec';
 
-test('招待リンク: 作ったものを読むと、URL と合言葉が戻る。合言葉は「#」より後ろにだけ入る', () => {
+test('招待リンク: 作ったものを読むと、URL と招待の印が戻る。印は「#」より後ろにだけ入る', () => {
   const link = L.buildInviteLink('https://openchat-post-helper.vercel.app/', GAS_URL, 'abc123-def');
   assert.ok(link.startsWith('https://openchat-post-helper.vercel.app/#invite='), link);
-  assert.ok(!link.split('#')[0].includes('abc123'), '合言葉が # より前（サーバーに送られる部分）に入ってはいけない');
-  assert.ok(!link.includes('?'), '合言葉をクエリに入れない');
-  assert.deepStrictEqual(L.parseInviteHash('#' + link.split('#')[1]), { gasUrl: GAS_URL, token: 'abc123-def' });
+  assert.ok(!link.split('#')[0].includes('abc123'), '印が # より前（サーバーに送られる部分）に入ってはいけない');
+  assert.ok(!link.includes('?'), '印をクエリに入れない');
+  assert.deepStrictEqual(L.parseInviteHash('#' + link.split('#')[1]), { gasUrl: GAS_URL, code: 'abc123-def' });
 });
 
 test('招待リンク: 開発サーバーの URL も通る。+ / = が出る長さでも戻る', () => {
   const dev = 'http://localhost:8765/mock-gas';
-  for (const token of ['a', 'ab', 'abc', '???>>>', '~~~~~~~~~~~~~~']) {
-    const hash = '#' + L.buildInviteLink('https://x.example', dev, token).split('#')[1];
+  for (const code of ['a', 'ab', 'abc', '???>>>', '~~~~~~~~~~~~~~']) {
+    const hash = '#' + L.buildInviteLink('https://x.example', dev, code).split('#')[1];
     assert.ok(/^#invite=[A-Za-z0-9_-]+$/.test(hash), hash);
-    assert.deepStrictEqual(L.parseInviteHash(hash), { gasUrl: dev, token });
+    assert.deepStrictEqual(L.parseInviteHash(hash), { gasUrl: dev, code });
   }
+});
+
+test('招待リンク: 以前の形（合言葉をそのまま入れたリンク）も読める。印があれば印を使う', () => {
+  const enc = (obj) => '#invite=' + Buffer.from(JSON.stringify(obj)).toString('base64url');
+  assert.deepStrictEqual(L.parseInviteHash(enc({ u: GAS_URL, c: 'code1', t: 'tok' })), { gasUrl: GAS_URL, code: 'code1' });
+  assert.deepStrictEqual(L.parseInviteHash(enc({ u: GAS_URL, c: '', t: 'tok' })), { gasUrl: GAS_URL, token: 'tok' });
+  assert.strictEqual(L.parseInviteHash(enc({ u: GAS_URL, c: 'x'.repeat(201) })), null);
 });
 
 test('招待リンク: 形が違う・知らない URL・空の合言葉・壊れたものは null', () => {

@@ -201,8 +201,12 @@
 
   // ---- 入力する人（利用者）と招待リンク ------------------------------------
 
-  /** 管理者か。接続の結果があればそれに従い、なければ「招待リンクで入った端末は入力する人」とみなす */
+  /**
+   * 管理者か。名前の登録待ちの間は管理者の欄を出さない。
+   * 接続の結果があればそれに従い、なければ「招待リンクで入った端末は入力する人」とみなす。
+   */
   function isAdmin() {
+    if (pendingInvite()) { return false; }
     if (state.boot && state.boot.role) { return state.boot.role === 'admin'; }
     var settings = loadSettings();
     return !(settings && settings.invited);
@@ -215,8 +219,9 @@
     for (var i = 0; i < nodes.length; i++) { nodes[i].hidden = !admin; }
     var settings = loadSettings();
     var invited = !!(settings && settings.invited);
-    $('invitedBox').hidden = !invited;
-    $('connectionForm').hidden = invited;
+    var claiming = !!pendingInvite();
+    $('invitedBox').hidden = !invited || claiming;
+    $('connectionForm').hidden = invited || claiming;
     if (invited && state.boot && state.boot.userName) {
       $('invitedState').textContent = '「' + state.boot.userName + '」さんとして、招待リンクで接続しています。合言葉はこの端末に保存されていて、画面には表示しません。';
     }
@@ -259,32 +264,132 @@
     });
   }
 
-  function loadUsers() {
-    if (!isAdmin()) { return; }
-    gasCall({ action: 'listUsers' }).then(function (json) { renderUsers(json.users); }).catch(function () { /* 一覧が出せなくても、ほかの操作は続けられる */ });
+  /** まだ使われていない招待の一覧。取り消せる */
+  function renderInvites(invites) {
+    var list = $('inviteManageList');
+    list.textContent = '';
+    if (!invites.length) {
+      list.appendChild(el('li', {}, [el('span', { className: 'name', text: 'ありません' })]));
+      return;
+    }
+    invites.forEach(function (v) {
+      var label = v.createdAt.slice(0, 16) + ' に作成（' + v.expiresAt + ' まで）';
+      list.appendChild(el('li', {}, [
+        el('span', { className: 'name', text: label }),
+        el('button', {
+          type: 'button', className: 'button danger small', text: '取り消す',
+          'aria-label': label + 'の招待を取り消す',
+          onClick: function () {
+            if (!window.confirm('この招待を取り消します。このリンクは使えなくなります。よろしいですか？')) { return; }
+            gasCall({ action: 'cancelInvite', id: v.id }).then(function (json) {
+              renderInvites(json.invites);
+              announce('招待を取り消しました');
+              $('usersHeading').focus();
+            }).catch(function (err) { alertMessage(err.message); });
+          }
+        })
+      ]));
+    });
   }
 
-  function addUser() {
-    var name = $('newUserName').value.trim();
-    if (!name) { alertMessage('名前を入れてください'); $('newUserName').focus(); return; }
-    var settings = loadSettings();
-    var button = $('addUserButton');
-    setBusy(button, true, '作っています…');
-    gasCall({ action: 'addUser', name: name }).then(function (json) {
-      setBusy(button, false);
+  function loadUsers() {
+    if (!isAdmin()) { return; }
+    gasCall({ action: 'listUsers' }).then(function (json) {
       renderUsers(json.users);
-      $('inviteLinkField').value = L.buildInviteLink(location.origin, settings.gasUrl, json.token);
-      $('inviteResultText').textContent = '「' + name + '」さんを追加しました。下の招待リンクを、その人に渡してください。';
+      renderInvites(json.invites || []);
+    }).catch(function () { /* 一覧が出せなくても、ほかの操作は続けられる */ });
+  }
+
+  function createInvite() {
+    var settings = loadSettings();
+    var button = $('createInviteButton');
+    setBusy(button, true, '作っています…');
+    gasCall({ action: 'createInvite' }).then(function (json) {
+      setBusy(button, false);
+      renderInvites(json.invites);
+      $('inviteLinkField').value = L.buildInviteLink(location.origin, settings.gasUrl, json.code);
       $('inviteResult').hidden = false;
-      $('newUserName').value = '';
       $('inviteLinkField').focus();
       $('inviteLinkField').select();
-      announce(name + 'さんを追加しました。招待リンクが表示されています');
+      announce('招待リンクを作りました。リンクが表示されています');
     }).catch(function (err) {
       setBusy(button, false);
-      alertMessage('追加できませんでした: ' + err.message);
-      $('newUserName').focus();
+      alertMessage('招待リンクを作れませんでした: ' + err.message);
     });
+  }
+
+  // 招待リンクから開いて、まだ名前を登録していない招待（1回だけ・7日間。登録できたら消す）
+  var PENDING_INVITE_KEY = 'ocph.pendingInvite';
+
+  function pendingInvite() {
+    var v = readStorage(PENDING_INVITE_KEY);
+    return v && v.gasUrl && v.code ? v : null;
+  }
+
+  /** 名前の登録欄を出す（招待リンクから開いたとき） */
+  function showClaimBox() {
+    $('claimBox').hidden = !pendingInvite();
+    applyRole();
+  }
+
+  function claimInvite() {
+    var invite = pendingInvite();
+    if (!invite) { showClaimBox(); return; }
+    var name = $('claimName').value.trim();
+    if (!name) { alertMessage('名前を入れてください'); $('claimName').focus(); return; }
+    var existing = loadSettings();
+    if (existing && existing.token &&
+        !window.confirm('この端末には、すでに接続の設定があります。招待リンクの設定に置き換えますか？')) {
+      return;
+    }
+    var button = $('claimButton');
+    setBusy(button, true, '登録しています…');
+    // まだ合言葉が無いので、gasPost を通さずに送る（GAS は招待の印で照合する）
+    fetch(invite.gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'claimInvite', code: invite.code, name: name })
+    }).then(function (response) {
+      return response.json();
+    }, function () {
+      throw new Error('通信に失敗しました。電波の状態を確認してください');
+    }).then(function (json) {
+      setBusy(button, false);
+      if (!json || json.ok !== true) {
+        var message = (json && json.error) || '不明なエラーです';
+        // 使えない招待なら、もう登録欄は出さない（名前の誤りなら、直してやり直せるよう残す）
+        if (/この招待リンクは使えません/.test(message)) {
+          writeStorage(PENDING_INVITE_KEY, null);
+          showClaimBox();
+        } else {
+          $('claimName').focus();
+        }
+        alertMessage(message);
+        return;
+      }
+      writeStorage(SETTINGS_KEY, { gasUrl: invite.gasUrl, token: json.token, invited: true });
+      writeStorage(PENDING_INVITE_KEY, null);
+      writeStorage(BOOT_CACHE_KEY, null);
+      state.boot = null;
+      $('claimName').value = '';
+      showClaimBox();
+      loadBootstrap().then(function () {
+        showView('inputView');
+        announce('「' + json.name + '」さんとして登録しました。入力を始められます');
+      }).catch(function (err) {
+        alertMessage('登録はできましたが、接続を確かめられませんでした: ' + err.message);
+      });
+    }).catch(function (err) {
+      setBusy(button, false);
+      alertMessage('登録できませんでした: ' + err.message);
+    });
+  }
+
+  function cancelClaim() {
+    if (!window.confirm('名前の登録をやめます。この招待リンクは、もう一度開けば使えます（7日以内・まだ誰も使っていなければ）。よろしいですか？')) { return; }
+    writeStorage(PENDING_INVITE_KEY, null);
+    showClaimBox();
+    announce('名前の登録をやめました');
   }
 
   function copyInviteLink() {
@@ -302,7 +407,7 @@
     }
   }
 
-  /** 招待リンクの設定を、この端末に入れる（読んだらすぐ、アドレス欄からは消してある） */
+  /** 以前の形の招待リンク（合言葉をそのまま入れたもの）の設定を、この端末に入れる（読んだらすぐ、アドレス欄からは消してある） */
   function acceptInvite(invite) {
     var existing = loadSettings();
     var message = '招待リンクで、この端末の接続を設定します。';
@@ -1421,7 +1526,12 @@
     $('addTagButton').addEventListener('click', function () { addListItem('tag'); });
     $('addAuthorButton').addEventListener('click', function () { addListItem('author'); });
     $('addKindButton').addEventListener('click', addKind);
-    $('addUserButton').addEventListener('click', addUser);
+    $('createInviteButton').addEventListener('click', createInvite);
+    $('claimButton').addEventListener('click', claimInvite);
+    $('claimCancelButton').addEventListener('click', cancelClaim);
+    $('claimName').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); claimInvite(); }
+    });
     $('copyInviteButton').addEventListener('click', copyInviteLink);
     $('disconnectButton').addEventListener('click', disconnect);
     $('syncPublicSheetButton').addEventListener('click', function () {
@@ -1446,12 +1556,19 @@
     wireEvents();
     renderTimings();
 
-    // 招待リンク（#invite=…）: 合言葉がアドレス欄や履歴に残らないよう、読んだらすぐ消す
+    // 招待リンク（#invite=…）: 招待の印がアドレス欄や履歴に残らないよう、読んだらすぐ消す。
+    // 名前の登録が済むまで、印はこの端末に置いておく（読み込み直しても続けられるように）
     var invalidInvite = false;
     if (location.hash.indexOf('#invite=') === 0) {
       var invite = L.parseInviteHash(location.hash);
       history.replaceState(null, '', location.pathname + location.search);
-      if (invite) { acceptInvite(invite); } else { invalidInvite = true; }
+      if (invite && invite.code) {
+        writeStorage(PENDING_INVITE_KEY, { gasUrl: invite.gasUrl, code: invite.code });
+      } else if (invite) {
+        acceptInvite(invite);
+      } else {
+        invalidInvite = true;
+      }
     }
 
     var settings = loadSettings();
@@ -1459,7 +1576,7 @@
       $('gasUrl').value = settings.gasUrl;
       $('sharedToken').value = settings.token || '';
     }
-    applyRole();
+    showClaimBox();
 
     var shared = L.parseSharedParams(location.search);
     if (shared.hasShared) {
@@ -1472,11 +1589,13 @@
       history.replaceState(null, '', location.pathname);
     }
 
-    showView(settings ? 'inputView' : 'settingsView', { keepFocus: true });
+    var claiming = !!pendingInvite();
+    showView(settings && !claiming ? 'inputView' : 'settingsView', { keepFocus: !claiming });
+    if (claiming) { $('claimName').focus(); }
     if (invalidInvite) {
       alertMessage('招待リンクが正しくありません。リンクを渡してくれた人に、もう一度作ってもらってください');
     }
-    if (!settings) {
+    if (!settings && !claiming) {
       alertMessage('最初に、GAS の Web アプリ URL と合言葉を設定してください');
     }
 

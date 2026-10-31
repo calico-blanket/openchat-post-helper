@@ -2158,36 +2158,100 @@ test('testClaude: 未設定なら案内を出し、設定済みなら HTTP の�
 
 // ---- 入力する人（利用者）の合言葉と権限 --------------------------------
 
-/** 管理者が入力する人を追加し、その人の合言葉を返す */
-function addUser(env, name) {
-  const added = post(env, { action: 'addUser', name });
-  assert.strictEqual(added.ok, true, JSON.stringify(added));
-  return added;
+/** 招待を受け取った人が名前を入れて登録する（合言葉なしで呼ぶ） */
+function claim(env, code, name) {
+  return post(env, { action: 'claimInvite', code, name }, null);
 }
 
-test('利用者: 追加すると合言葉が1回だけ返り、GAS には元に戻せない値しか保存しない', () => {
+/** 管理者が招待を作り、受け取った人が名前を入れて登録する。その人の合言葉と、一覧の上の姿を返す */
+function addUser(env, name) {
+  const invite = post(env, { action: 'createInvite' });
+  assert.strictEqual(invite.ok, true, JSON.stringify(invite));
+  const claimed = claim(env, invite.code, name);
+  assert.strictEqual(claimed.ok, true, JSON.stringify(claimed));
+  const users = post(env, { action: 'listUsers' }).users;
+  return { token: claimed.token, user: users.find((u) => u.name === name), users };
+}
+
+test('招待: 作ると招待の印が1回だけ返り、GAS には元に戻せない値しか保存しない。一覧には待っている招待が出る', () => {
   const env = load();
-  // 本物の UUID（ハイフン込み36文字）で、合言葉が十分な長さの16進になることを確かめる
+  // 本物の UUID（ハイフン込み36文字）で、印が十分な長さの16進になることを確かめる
   env.context.Utilities.getUuid = () => require('node:crypto').randomUUID();
-  const added = addUser(env, '花子');
-  assert.match(added.token, /^[0-9a-f]{64}$/);
-  assert.strictEqual(added.users.length, 1);
-  assert.ok(!('hash' in added.users[0]) && !('token' in added.users[0]));
-  const stored = env.props.USERS_JSON;
-  assert.ok(!stored.includes(added.token), '合言葉そのものを保存してはいけない');
-  assert.ok(/"hash":"[0-9a-f]{64}"/.test(stored));
-  // 一覧にも合言葉・ハッシュは出ない
+  const invite = post(env, { action: 'createInvite' });
+  assert.match(invite.code, /^[0-9a-f]{64}$/);
+  assert.ok(!env.props.INVITES_JSON.includes(invite.code), '招待の印そのものを保存してはいけない');
   const listed = post(env, { action: 'listUsers' });
-  assert.ok(!JSON.stringify(listed).includes(added.token));
+  assert.strictEqual(listed.invites.length, 1);
+  assert.strictEqual(listed.invites[0].id, invite.invite.id);
+  assert.ok(!JSON.stringify(listed).includes(invite.code));
   assert.ok(!JSON.stringify(listed).includes('hash'));
 });
 
-test('利用者: 名前の検証（空・長すぎ・重複）', () => {
+test('招待: 名前を入れると、その人の合言葉が返り、招待は使用済みになる（2回目は使えない）', () => {
+  const env = load();
+  env.context.Utilities.getUuid = () => require('node:crypto').randomUUID();
+  const invite = post(env, { action: 'createInvite' });
+  const claimed = claim(env, invite.code, '  花子  ');
+  assert.strictEqual(claimed.ok, true, JSON.stringify(claimed));
+  assert.match(claimed.token, /^[0-9a-f]{64}$/);
+  assert.strictEqual(claimed.name, '花子');
+  assert.deepStrictEqual(Object.keys(claimed).sort(), ['name', 'ok', 'token'], 'ほかの情報は返さない');
+  assert.ok(!env.props.USERS_JSON.includes(claimed.token), '合言葉そのものを保存してはいけない');
+  // 登録した合言葉で使える
+  const boot = post(env, { action: 'bootstrap' }, claimed.token);
+  assert.strictEqual(boot.role, 'user');
+  assert.strictEqual(boot.userName, '花子');
+  // 同じリンクは2回目は使えない（複数の人がいるチャットに送られても、先の1人だけ）
+  assert.match(claim(env, invite.code, '太郎').error, /この招待リンクは使えません/);
+  const listed = post(env, { action: 'listUsers' });
+  assert.strictEqual(listed.invites.length, 0);
+  assert.deepStrictEqual(listed.users.map((u) => u.name), ['花子']);
+});
+
+test('招待: 名前が正しくなければ登録せず、招待は残る（直して同じリンクでやり直せる）', () => {
   const env = load();
   addUser(env, '花子');
-  assert.match(post(env, { action: 'addUser', name: '  ' }).error, /名前を入力/);
-  assert.match(post(env, { action: 'addUser', name: 'あ'.repeat(31) }).error, /30文字以内/);
-  assert.match(post(env, { action: 'addUser', name: '花子' }).error, /同じ名前/);
+  const invite = post(env, { action: 'createInvite' });
+  assert.match(claim(env, invite.code, '  ').error, /名前を入力/);
+  assert.match(claim(env, invite.code, 'あ'.repeat(31)).error, /30文字以内/);
+  assert.match(claim(env, invite.code, '花子').error, /同じ名前/);
+  assert.strictEqual(post(env, { action: 'listUsers' }).invites.length, 1);
+  assert.strictEqual(claim(env, invite.code, '花子 2').ok, true);
+});
+
+test('招待: 取り消した招待・期限切れ（7日）の招待・知らない印は使えない', () => {
+  const env = load();
+  const cancelled = post(env, { action: 'createInvite' });
+  assert.strictEqual(post(env, { action: 'cancelInvite', id: cancelled.invite.id }).invites.length, 0);
+  assert.match(claim(env, cancelled.code, '花子').error, /この招待リンクは使えません/);
+  assert.match(post(env, { action: 'cancelInvite', id: cancelled.invite.id }).error, /見つかりません/);
+
+  const expired = post(env, { action: 'createInvite' });
+  const stored = JSON.parse(env.props.INVITES_JSON);
+  const days = (stored[0].expiresAt - Date.now()) / 86400000;
+  assert.ok(days > 6.99 && days <= 7, String(days));
+  stored[0].expiresAt = Date.now() - 1;
+  env.props.INVITES_JSON = JSON.stringify(stored);
+  assert.match(claim(env, expired.code, '花子').error, /この招待リンクは使えません/);
+  assert.strictEqual(post(env, { action: 'listUsers' }).invites.length, 0, '期限切れは一覧に出ない');
+
+  [undefined, '', 123, 'f'.repeat(64), stored[0].hash].forEach((code) => {
+    assert.match(claim(env, code, '花子').error, /この招待リンクは使えません/, String(code));
+  });
+  assert.strictEqual(post(env, { action: 'listUsers' }).users.length, 0);
+});
+
+test('招待: SHARED_TOKEN が未設定なら、名前の登録も拒否する', () => {
+  const env = load();
+  const invite = post(env, { action: 'createInvite' });
+  delete env.props.SHARED_TOKEN;
+  assert.match(claim(env, invite.code, '花子').error, /SHARED_TOKEN/);
+});
+
+test('招待: 使われていない招待は30件まで', () => {
+  const env = load();
+  for (let i = 0; i < 30; i++) { assert.strictEqual(post(env, { action: 'createInvite' }).ok, true); }
+  assert.match(post(env, { action: 'createInvite' }).error, /30件/);
 });
 
 test('利用者: 入力する人の合言葉で、入力・保存・検索ができ、bootstrap は管理者向けの情報を含まない', () => {
@@ -2216,7 +2280,7 @@ test('利用者: 入力する人は、管理者だけの操作（設定の変更
     { action: 'addKind', label: 'X' }, { action: 'removeKind', key: 'custom_x' },
     { action: 'addAuthor', name: 'X' }, { action: 'removeAuthor', name: 'X' },
     { action: 'reorderAuthors', authors: [] }, { action: 'syncPublicSheet' },
-    { action: 'listUsers' }, { action: 'addUser', name: '太郎' },
+    { action: 'listUsers' }, { action: 'createInvite' }, { action: 'cancelInvite', id: 'x' },
     { action: 'setUserDisabled', id: 'x', disabled: true }, { action: 'removeUser', id: 'x' }
   ];
   adminOnly.forEach((body) => {
