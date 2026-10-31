@@ -743,7 +743,7 @@ function buildAnalyzeMaterials_(options) {
       enum: ['in_person', 'online', 'hybrid', 'tv', 'unknown'],
       description: '開催形式。in_person=対面（現地）のみ、online=オンラインのみ、hybrid=対面とオンラインの両方、tv=テレビ番組への出演・テレビ放送（YouTube やオンライン会議の配信はオンライン）、unknown=開催の告知でない・書かれていない'
     },
-    area: { type: 'STRING', description: '対面の場合の地名を数文字で（例: 高崎、神戸三宮、渋谷）。会場名・住所・階数は書かない。対面でなければ空文字' },
+    area: { type: 'STRING', description: '対面の場合の地名を数文字で（例: 神戸三宮、渋谷）。会場名・住所・階数は書かない。対面でなければ空文字' },
     deadline: { type: 'STRING', description: '申込締切日。YYYY-MM-DD の絶対日付。無ければ空文字' },
     joinUrl: { type: 'STRING', description: '参加用の URL（配信・オンライン会議）。本文に書かれている URL をそのまま書き写す。無ければ空文字' },
     applyUrl: { type: 'STRING', description: '申込用の URL（申込フォームなど）。本文に書かれている URL をそのまま書き写す。無ければ空文字' },
@@ -1109,7 +1109,7 @@ function joinSummaryPoints_(points) {
 
 /**
  * 開催形式と地名から、トーク用の短い場所の表記を作る純粋関数（書式は Config.gs の placeLabels）。
- *   hybrid + 高崎 → 対面（高崎）＆オンライン ／ online → オンライン ／ tv → テレビ ／ in_person + 高崎 → 対面（高崎）
+ *   hybrid + 渋谷 → 対面（渋谷）＆オンライン ／ online → オンライン ／ tv → テレビ ／ in_person + 渋谷 → 対面（渋谷）
  *   形式が不明で地名だけあれば地名をそのまま、どちらも無ければ空文字
  */
 function buildPlaceLabel_(attendance, area) {
@@ -2365,7 +2365,7 @@ function testClaude() {
     return;
   }
   var model = getProperty_('CLAUDE_MODEL') || DEFAULT_CLAUDE_MODEL;
-  var request = buildClaudeSummaryRequest_(key, model, '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。参加は無料です。', '3lines');
+  var request = buildClaudeSummaryRequest_(key, model, '10月24日（土）13時から渋谷で勉強会を開催します。オンラインでも参加できます。参加は無料です。', '3lines');
   var params = {};
   Object.keys(request).forEach(function (name) { if (name !== 'url') { params[name] = request[name]; } });
   var response = UrlFetchApp.fetch(request.url, params);
@@ -2381,7 +2381,7 @@ function testClaude() {
   var analyzeRequest = buildClaudeAnalyzeRequest_({
     apiKey: key,
     model: model,
-    text: '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。参加は無料です。',
+    text: '10月24日（土）13時から渋谷で勉強会を開催します。オンラインでも参加できます。参加は無料です。',
     image: null,
     url: '',
     source: 'other',
@@ -2420,7 +2420,7 @@ function testJev() {
   var tags = getTags_();
   var request = buildJevRequest_(key, {
     url: '',
-    text: '10月24日（土）13時から高崎で勉強会を開催します。オンラインでも参加できます。'
+    text: '10月24日（土）13時から渋谷で勉強会を開催します。オンラインでも参加できます。'
   }, categories, tags);
   Logger.log('送信する質問: ' + Object.keys(JSON.parse(request.payload).questions).join(', ') +
     '（カテゴリ ' + categories.length + ' 件、タグ ' + tags.length + ' 件）');

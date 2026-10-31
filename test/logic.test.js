@@ -152,7 +152,7 @@ test('buildTalkBody: スケジュール型は概略を載せず「いつ・ど�
     source: 'slack',
     author: '',
     event: {
-      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（高崎）＆オンライン',
+      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（渋谷）＆オンライン',
       performers: '山田、佐藤', deadline: '2026-10-20'
     }
   }, CONFIG, '2026-10-03');
@@ -160,7 +160,7 @@ test('buildTalkBody: スケジュール型は概略を載せず「いつ・ど�
     '【バイブコーディング勉強会・交流会】',
     '',
     '📅 10/24(土) 13:00〜17:00',
-    '📍 対面（高崎）＆オンライン',
+    '📍 対面（渋谷）＆オンライン',
     '🎤 出演: 山田、佐藤',
     '⏰ 申込締切: 10/20(火)',
     '',
@@ -514,7 +514,7 @@ test('buildTalkBody: スケジュール型は参加URLをトークに出さず�
   const body = L.buildTalkBody({
     title: '勉強会', summary: '', kind: 'schedule', source: 'slack', author: '',
     event: {
-      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（高崎）＆オンライン',
+      date: '2026-10-24', startTime: '13:00', endTime: '17:00', place: '対面（渋谷）＆オンライン',
       joinUrl: 'https://www.youtube.com/live/abc', performers: '', deadline: '2026-10-20',
       applyUrl: 'https://forms.gle/xyz'
     }
@@ -523,7 +523,7 @@ test('buildTalkBody: スケジュール型は参加URLをトークに出さず�
     '【勉強会】',
     '',
     '📅 10/24(土) 13:00〜17:00',
-    '📍 対面（高崎）＆オンライン',
+    '📍 対面（渋谷）＆オンライン',
     '⏰ 申込締切: 10/20(火)',
     '📝 申込: https://forms.gle/xyz',
     '',
@@ -560,8 +560,8 @@ test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警
 
 const ARCHIVE_ITEMS = [
   { savedAt: '2026-10-04 13:00:00', kindLabel: '議員活動', title: '国会対策の1年', eventIso: '', place: '', author: '須田', talk: 'トーク', original: '長い原文', tags: ['国会'] },
-  { savedAt: '2026-10-03 02:00:00', kindLabel: 'スケジュール', title: '勉強会', eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', place: '対面（高崎）＆オンライン', author: '運営', talk: '', original: '', tags: [] },
-  { savedAt: '2026-09-28 10:00:00', kindLabel: 'スケジュール', title: 'ポスティング', eventIso: '2026-10-12T10:00+09:00', place: '対面', author: '運営', talk: '', original: '高崎駅前に集合', tags: ['ポスティング'] },
+  { savedAt: '2026-10-03 02:00:00', kindLabel: 'スケジュール', title: '勉強会', eventIso: '2026-10-24T13:00+09:00/2026-10-24T17:00+09:00', place: '対面（渋谷）＆オンライン', author: '運営', talk: '', original: '', tags: [] },
+  { savedAt: '2026-09-28 10:00:00', kindLabel: 'スケジュール', title: 'ポスティング', eventIso: '2026-10-12T10:00+09:00', place: '対面', author: '運営', talk: '', original: '渋谷駅前に集合', tags: ['ポスティング'] },
   { savedAt: '2026-09-14 10:00:00', kindLabel: 'スケジュール', title: '説明会', eventIso: '2026-09-20', place: 'オンライン', author: '運営', talk: '', original: '', tags: [] }
 ];
 const titles = (view) => view.rows.filter((r) => r.type === 'item').map((r) => r.item.title);
@@ -577,7 +577,7 @@ test('buildArchiveView: 登録日の新しい順に並べ、月が変わると�
 });
 
 test('buildArchiveView: 検索は原文・タグ・場所も対象で、大文字小文字を区別しない', () => {
-  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '高崎' })), ['勉強会', 'ポスティング']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '渋谷' })), ['勉強会', 'ポスティング']);
   assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '国会' })), ['国会対策の1年']);
   assert.deepStrictEqual(titles(L.buildArchiveView(ARCHIVE_ITEMS, { q: '  ' })).length, 4);
   assert.strictEqual(L.buildArchiveView(ARCHIVE_ITEMS, { q: '存在しない語' }).total, 0);
@@ -616,9 +616,9 @@ test('buildArchiveView: 表示件数の上限と「さらに表示」の判定',
 });
 
 const FILTER_ITEMS = [
-  { savedAt: '2026-10-05 10:00:00', title: 'A', category: 'イベント', tags: ['AI', '高崎'], eventIso: '', place: '', author: '', talk: '', original: '' },
+  { savedAt: '2026-10-05 10:00:00', title: 'A', category: 'イベント', tags: ['AI', '渋谷'], eventIso: '', place: '', author: '', talk: '', original: '' },
   { savedAt: '2026-10-04 10:00:00', title: 'B', category: 'イベント', tags: ['AI'], eventIso: '', place: '', author: '', talk: '', original: '' },
-  { savedAt: '2026-10-03 10:00:00', title: 'C', category: '活動報告', tags: ['高崎', '街頭'], eventIso: '', place: '', author: '', talk: '', original: '' },
+  { savedAt: '2026-10-03 10:00:00', title: 'C', category: '活動報告', tags: ['渋谷', '街頭'], eventIso: '', place: '', author: '', talk: '', original: '' },
   { savedAt: '2026-10-02 10:00:00', title: 'D', category: '', tags: [], eventIso: '', place: '', author: '', talk: '', original: '' }
 ];
 
@@ -631,17 +631,17 @@ test('buildArchiveView: カテゴリで絞り込む（空なら全部）', () =>
 
 test('buildArchiveView: タグは初期値が OR（どれか1つでも持つ）、and なら全部持つものだけ', () => {
   assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI'] })), ['A', 'B']);
-  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'] })), ['A', 'B', 'C'], '初期値は OR');
-  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'], tagMode: 'or' })), ['A', 'B', 'C']);
-  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '高崎'], tagMode: 'and' })), ['A']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '渋谷'] })), ['A', 'B', 'C'], '初期値は OR');
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '渋谷'], tagMode: 'or' })), ['A', 'B', 'C']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { tags: ['AI', '渋谷'], tagMode: 'and' })), ['A']);
   assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { tags: [] }).total, 4, 'タグを選ばなければ全部');
   assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { tags: ['存在しない'], tagMode: 'and' }).total, 0);
 });
 
 test('buildArchiveView: カテゴリ・タグ・検索・開催予定のみは重ねて（すべて満たすものだけ）効く', () => {
-  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['高崎'] })), ['A']);
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['渋谷'] })), ['A']);
   assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['AI'], q: 'ai' })), ['A', 'B']);
-  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['AI'], q: '高崎' })), ['A'], '検索も重なる');
+  assert.deepStrictEqual(titles(L.buildArchiveView(FILTER_ITEMS, { category: 'イベント', tags: ['AI'], q: '渋谷' })), ['A'], '検索も重なる');
   assert.strictEqual(L.buildArchiveView(FILTER_ITEMS, { category: '活動報告', tags: ['AI'] }).total, 0);
 });
 
@@ -652,7 +652,7 @@ test('buildArchiveView: 検索は種別の名前では当たらない（一覧�
 test('archiveFacets: カテゴリとタグを件数の多い順（同数は名前順）に数える。空は除く', () => {
   const f = L.archiveFacets(FILTER_ITEMS);
   assert.deepStrictEqual(f.categories, [{ name: 'イベント', count: 2 }, { name: '活動報告', count: 1 }]);
-  assert.deepStrictEqual(f.tags, [{ name: 'AI', count: 2 }, { name: '高崎', count: 2 }, { name: '街頭', count: 1 }]);
+  assert.deepStrictEqual(f.tags, [{ name: 'AI', count: 2 }, { name: '渋谷', count: 2 }, { name: '街頭', count: 1 }]);
   assert.deepStrictEqual(L.archiveFacets([]), { categories: [], tags: [] });
   assert.deepStrictEqual(L.archiveFacets([{ tags: ['x', 'x', ''] }]).tags, [{ name: 'x', count: 1 }], '同じ記録の重複タグは1回');
 });
