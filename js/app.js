@@ -160,6 +160,7 @@
 
   function applyBoot(boot) {
     state.boot = boot;
+    applyRole();
     renderSourceSelect($('inputSource'), true);
     renderSearchFilters();
     renderManageLists();
@@ -193,8 +194,132 @@
     return gasCall({ action: 'bootstrap' }).then(function (boot) {
       writeStorage(BOOT_CACHE_KEY, boot);
       applyBoot(boot);
+      loadUsers();
       return true;
     });
+  }
+
+  // ---- 入力する人（利用者）と招待リンク ------------------------------------
+
+  /** 管理者か。接続の結果があればそれに従い、なければ「招待リンクで入った端末は入力する人」とみなす */
+  function isAdmin() {
+    if (state.boot && state.boot.role) { return state.boot.role === 'admin'; }
+    var settings = loadSettings();
+    return !(settings && settings.invited);
+  }
+
+  /** 管理者だけの欄（設定の変更・利用者の管理など）の表示と、招待リンクで入った端末の接続欄を切り替える */
+  function applyRole() {
+    var admin = isAdmin();
+    var nodes = document.querySelectorAll('[data-admin-only]');
+    for (var i = 0; i < nodes.length; i++) { nodes[i].hidden = !admin; }
+    var settings = loadSettings();
+    var invited = !!(settings && settings.invited);
+    $('invitedBox').hidden = !invited;
+    $('connectionForm').hidden = invited;
+    if (invited && state.boot && state.boot.userName) {
+      $('invitedState').textContent = '「' + state.boot.userName + '」さんとして、招待リンクで接続しています。合言葉はこの端末に保存されていて、画面には表示しません。';
+    }
+  }
+
+  function renderUsers(users) {
+    var list = $('userManageList');
+    list.textContent = '';
+    if (!users.length) {
+      list.appendChild(el('li', {}, [el('span', { className: 'name', text: 'まだいません' })]));
+      return;
+    }
+    users.forEach(function (u) {
+      list.appendChild(el('li', {}, [
+        el('span', { className: 'name', text: u.name + (u.disabled ? '（停止中）' : '') }),
+        el('button', {
+          type: 'button', className: 'button secondary small', text: u.disabled ? '再開' : '止める',
+          'aria-label': u.disabled ? u.name + 'さんを再開する' : u.name + 'さんを止める',
+          onClick: function () {
+            gasCall({ action: 'setUserDisabled', id: u.id, disabled: !u.disabled }).then(function (json) {
+              renderUsers(json.users);
+              announce(u.name + 'さんを' + (u.disabled ? '再開しました' : '止めました'));
+              $('usersHeading').focus();
+            }).catch(function (err) { alertMessage(err.message); });
+          }
+        }),
+        el('button', {
+          type: 'button', className: 'button danger small', text: '削除',
+          'aria-label': u.name + 'さんを削除',
+          onClick: function () {
+            if (!window.confirm(u.name + 'さんを削除します。その人の合言葉は使えなくなります（保存した記録は残り、管理者だけが編集・削除できます）。よろしいですか？')) { return; }
+            gasCall({ action: 'removeUser', id: u.id }).then(function (json) {
+              renderUsers(json.users);
+              announce(u.name + 'さんを削除しました');
+              $('usersHeading').focus();
+            }).catch(function (err) { alertMessage(err.message); });
+          }
+        })
+      ]));
+    });
+  }
+
+  function loadUsers() {
+    if (!isAdmin()) { return; }
+    gasCall({ action: 'listUsers' }).then(function (json) { renderUsers(json.users); }).catch(function () { /* 一覧が出せなくても、ほかの操作は続けられる */ });
+  }
+
+  function addUser() {
+    var name = $('newUserName').value.trim();
+    if (!name) { alertMessage('名前を入れてください'); $('newUserName').focus(); return; }
+    var settings = loadSettings();
+    var button = $('addUserButton');
+    setBusy(button, true, '作っています…');
+    gasCall({ action: 'addUser', name: name }).then(function (json) {
+      setBusy(button, false);
+      renderUsers(json.users);
+      $('inviteLinkField').value = L.buildInviteLink(location.origin, settings.gasUrl, json.token);
+      $('inviteResultText').textContent = '「' + name + '」さんを追加しました。下の招待リンクを、その人に渡してください。';
+      $('inviteResult').hidden = false;
+      $('newUserName').value = '';
+      $('inviteLinkField').focus();
+      $('inviteLinkField').select();
+      announce(name + 'さんを追加しました。招待リンクが表示されています');
+    }).catch(function (err) {
+      setBusy(button, false);
+      alertMessage('追加できませんでした: ' + err.message);
+      $('newUserName').focus();
+    });
+  }
+
+  function copyInviteLink() {
+    var field = $('inviteLinkField');
+    field.focus();
+    field.select();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(field.value).then(function () {
+        announce('招待リンクをコピーしました');
+      }, function () {
+        alertMessage('コピーできませんでした。選択されているリンクを、長押しなどでコピーしてください');
+      });
+    } else {
+      alertMessage('コピーできませんでした。選択されているリンクを、長押しなどでコピーしてください');
+    }
+  }
+
+  /** 招待リンクの設定を、この端末に入れる（読んだらすぐ、アドレス欄からは消してある） */
+  function acceptInvite(invite) {
+    var existing = loadSettings();
+    var message = '招待リンクで、この端末の接続を設定します。';
+    if (existing && existing.token) { message += '\nいまの接続の設定は置き換わります。'; }
+    message += '\nよろしいですか？';
+    if (!window.confirm(message)) { announce('招待リンクでの設定を取りやめました'); return false; }
+    writeStorage(SETTINGS_KEY, { gasUrl: invite.gasUrl, token: invite.token, invited: true });
+    writeStorage(BOOT_CACHE_KEY, null);
+    state.boot = null;
+    return true;
+  }
+
+  function disconnect() {
+    if (!window.confirm('この端末の接続の設定を消します（保存した記録は消えません）。よろしいですか？')) { return; }
+    writeStorage(SETTINGS_KEY, null);
+    writeStorage(BOOT_CACHE_KEY, null);
+    location.reload();
   }
 
   function updateBootLists(json) {
@@ -366,6 +491,9 @@
     var ev = L.parseEventIso(item.eventIso);
     return {
       id: item.id,
+      // 入力する人は、自分が保存した記録だけ編集・削除できる（GAS が決める。古い応答なら編集できる扱い）
+      canEdit: item.canEdit !== false,
+      savedByName: item.savedByName || '',
       kind: item.kind,
       source: item.source,
       author: item.author || '',
@@ -431,7 +559,12 @@
     clearFieldErrors();
 
     $('saveButton').textContent = post.id ? '更新する' : '保存する';
-    $('deleteButton').hidden = !post.id;
+    var readOnly = !!post.id && post.canEdit === false;
+    $('saveButton').hidden = readOnly;
+    $('deleteButton').hidden = !post.id || readOnly;
+    $('readOnlyNotice').hidden = !readOnly;
+    $('savedByNote').hidden = !post.savedByName;
+    $('savedByNote').textContent = post.savedByName ? '保存した人: ' + post.savedByName : '';
 
     refreshOutputs();
 
@@ -999,7 +1132,8 @@
             'aria-label': '「' + item.title + '」を開く',
             onClick: function () { openResult(postFromItem(item), null); }
           }),
-          el('button', {
+          // 入力する人は、他の人の記録を削除できない（GAS も拒否する）
+          item.canEdit === false ? null : el('button', {
             type: 'button', className: 'button danger small', text: '削除',
             'aria-label': '「' + item.title + '」を削除',
             onClick: function () {
@@ -1171,6 +1305,8 @@
       return;
     }
     writeStorage(SETTINGS_KEY, { gasUrl: gasUrl, token: token });
+    writeStorage(BOOT_CACHE_KEY, null);
+    state.boot = null;
     announce('接続を確かめています');
     loadBootstrap().then(function () {
       announce('接続できました。設定を保存しました');
@@ -1285,6 +1421,9 @@
     $('addTagButton').addEventListener('click', function () { addListItem('tag'); });
     $('addAuthorButton').addEventListener('click', function () { addListItem('author'); });
     $('addKindButton').addEventListener('click', addKind);
+    $('addUserButton').addEventListener('click', addUser);
+    $('copyInviteButton').addEventListener('click', copyInviteLink);
+    $('disconnectButton').addEventListener('click', disconnect);
     $('syncPublicSheetButton').addEventListener('click', function () {
       var button = $('syncPublicSheetButton');
       setBusy(button, true, '作り直しています…');
@@ -1306,11 +1445,21 @@
   function init() {
     wireEvents();
     renderTimings();
+
+    // 招待リンク（#invite=…）: 合言葉がアドレス欄や履歴に残らないよう、読んだらすぐ消す
+    var invalidInvite = false;
+    if (location.hash.indexOf('#invite=') === 0) {
+      var invite = L.parseInviteHash(location.hash);
+      history.replaceState(null, '', location.pathname + location.search);
+      if (invite) { acceptInvite(invite); } else { invalidInvite = true; }
+    }
+
     var settings = loadSettings();
-    if (settings) {
+    if (settings && !settings.invited) {
       $('gasUrl').value = settings.gasUrl;
       $('sharedToken').value = settings.token || '';
     }
+    applyRole();
 
     var shared = L.parseSharedParams(location.search);
     if (shared.hasShared) {
@@ -1324,6 +1473,9 @@
     }
 
     showView(settings ? 'inputView' : 'settingsView', { keepFocus: true });
+    if (invalidInvite) {
+      alertMessage('招待リンクが正しくありません。リンクを渡してくれた人に、もう一度作ってもらってください');
+    }
     if (!settings) {
       alertMessage('最初に、GAS の Web アプリ URL と合言葉を設定してください');
     }

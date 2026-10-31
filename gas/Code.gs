@@ -9,7 +9,8 @@
 //   設定（初期カテゴリ・ひな形・議員名一覧など）は Config.gs の APP_CONFIG に置く。
 //
 //   スクリプトプロパティ（秘密情報はここだけに置く）:
-//     SHARED_TOKEN      合言葉（必須。未設定なら全 API を拒否する）
+//     SHARED_TOKEN      管理者の合言葉（必須。未設定なら全 API を拒否する。管理者だけが知る）
+//     USERS_JSON        入力する人の一覧（画面の「利用者」で管理。合言葉そのものは持たず、元に戻せない形にした値だけを持つ）
 //     GEMINI_API_KEY    Gemini の API キー（必須）
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
@@ -38,6 +39,14 @@ var TAGS_PROPERTY = 'TAGS_JSON';
 var AUTHORS_PROPERTY = 'AUTHORS_JSON';
 var KINDS_PROPERTY = 'KINDS_JSON';
 var MAX_CUSTOM_KINDS = 20;
+var USERS_PROPERTY = 'USERS_JSON';
+var MAX_USERS = 30;
+// 管理者だけが呼べる action（入力する人は呼べない）
+var ADMIN_ONLY_ACTIONS = [
+  'addCategory', 'removeCategory', 'reorderCategories', 'addTag', 'removeTag', 'reorderTags',
+  'addKind', 'removeKind', 'addAuthor', 'removeAuthor', 'reorderAuthors', 'syncPublicSheet',
+  'listUsers', 'addUser', 'setUserDisabled', 'removeUser'
+];
 
 // 保存先シート。1行1件。
 // 列は「見出しの名前」で読み書きする（列の位置は決め打ちしない）。そのため、
@@ -49,13 +58,13 @@ var SHEET_NAME = '投稿一覧';
 // 新しくシートを作るときの並び順
 var FIELD_ORDER = [
   'savedAt', 'kind', 'author', 'source', 'category', 'title', 'summary', 'url', 'original', 'tags',
-  'eventIso', 'place', 'deadline', 'performers', 'memo', 'id', 'talk', 'joinUrl', 'applyUrl', 'postedAt'
+  'eventIso', 'place', 'deadline', 'performers', 'memo', 'id', 'talk', 'joinUrl', 'applyUrl', 'postedAt', 'savedBy'
 ];
 var FIELD_HEADERS = {
   savedAt: '登録日時', kind: '種別', author: '発信者', source: 'ソース', category: 'カテゴリ',
   title: 'タイトル', summary: '概略', url: 'URL', original: 'スレッド詳細（原文）', tags: 'タグ',
   eventIso: '開催日時（ISO）', place: '場所', deadline: '申込締切', performers: '出演者', memo: 'コメント',
-  id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL', postedAt: '発信日'
+  id: 'ID', talk: 'トーク本文', joinUrl: '参加URL', applyUrl: '申込URL', postedAt: '発信日', savedBy: '保存者ID'
 };
 var HEADER = FIELD_ORDER.map(function (key) { return FIELD_HEADERS[key]; });
 // 以前の見出し（見つかったら今の見出しに書き換える）。memo は、スレッドに添えるコメントの列
@@ -98,17 +107,18 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body = parseJsonBody_(e);
-    checkToken_(body.token);
+    var auth = checkToken_(body.token);
 
     var action = String(body.action || '');
+    if (ADMIN_ONLY_ACTIONS.indexOf(action) !== -1) { requireAdmin_(auth); }
     switch (action) {
-      case 'bootstrap': return jsonResponse_(handleBootstrap_());
+      case 'bootstrap': return jsonResponse_(handleBootstrap_(auth));
       case 'analyze': return jsonResponse_(handleAnalyze_(body));
       case 'summarize': return jsonResponse_(handleSummarize_(body));
-      case 'save': return jsonResponse_(withLock_(function () { return handleSave_(body); }));
-      case 'update': return jsonResponse_(withLock_(function () { return handleUpdate_(body); }));
-      case 'delete': return jsonResponse_(withLock_(function () { return handleDelete_(body); }));
-      case 'search': return jsonResponse_(handleSearch_(body));
+      case 'save': return jsonResponse_(withLock_(function () { return handleSave_(body, auth); }));
+      case 'update': return jsonResponse_(withLock_(function () { return handleUpdate_(body, auth); }));
+      case 'delete': return jsonResponse_(withLock_(function () { return handleDelete_(body, auth); }));
+      case 'search': return jsonResponse_(handleSearch_(body, auth));
       case 'addCategory': return jsonResponse_(handleAddListItem_(body, 'category'));
       case 'removeCategory': return jsonResponse_(handleRemoveListItem_(body, 'category'));
       case 'reorderCategories': return jsonResponse_(handleReorderList_(body.categories, 'category'));
@@ -121,6 +131,10 @@ function doPost(e) {
       case 'removeAuthor': return jsonResponse_(handleRemoveListItem_(body, 'author'));
       case 'reorderAuthors': return jsonResponse_(handleReorderList_(body.authors, 'author'));
       case 'syncPublicSheet': return jsonResponse_(withLock_(function () { return syncPublicSheet_(); }));
+      case 'listUsers': return jsonResponse_(handleListUsers_());
+      case 'addUser': return jsonResponse_(withLock_(function () { return handleAddUser_(body); }));
+      case 'setUserDisabled': return jsonResponse_(withLock_(function () { return handleSetUserDisabled_(body); }));
+      case 'removeUser': return jsonResponse_(withLock_(function () { return handleRemoveUser_(body); }));
       default:
         throw new Error('不明な action です: ' + action);
     }
@@ -142,16 +156,151 @@ function parseJsonBody_(e) {
 }
 
 /**
- * 合言葉を照合する。SHARED_TOKEN が未設定なら、素通しにせず拒否する。
+ * 合言葉を照合して、誰の合言葉かを返す。SHARED_TOKEN が未設定なら、素通しにせず拒否する。
+ *   管理者の合言葉（SHARED_TOKEN）→ { role: 'admin', userId: '', name: '管理者' }
+ *   入力する人の合言葉（USERS_JSON の値と照合）→ { role: 'user', userId, name }
  */
 function checkToken_(token) {
   var expected = getProperty_('SHARED_TOKEN');
   if (!expected) {
     throw new Error('GAS のスクリプトプロパティ SHARED_TOKEN（合言葉）が未設定のため、利用できません。README の手順で設定してください');
   }
-  if (typeof token !== 'string' || token !== expected) {
-    throw new Error('合言葉が一致しません。PWA の設定画面を確認してください');
+  if (typeof token === 'string' && token) {
+    if (safeEquals_(token, expected)) {
+      return { role: 'admin', userId: '', name: '管理者' };
+    }
+    var hash = hashToken_(token);
+    var users = getUsers_();
+    for (var i = 0; i < users.length; i++) {
+      if (safeEquals_(users[i].hash, hash)) {
+        if (users[i].disabled) {
+          throw new Error('この合言葉は、いまは使えません。管理者に連絡してください');
+        }
+        return { role: 'user', userId: users[i].id, name: users[i].name };
+      }
+    }
   }
+  throw new Error('合言葉が一致しません。PWA の設定画面を確認してください');
+}
+
+/** 文字列を、長さや違い始めの位置で処理時間が変わらないように比べる */
+function safeEquals_(a, b) {
+  var x = String(a);
+  var y = String(b);
+  var diff = x.length ^ y.length;
+  var max = Math.max(x.length, y.length);
+  for (var i = 0; i < max; i++) {
+    diff |= (x.charCodeAt(i) || 0) ^ (y.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
+/** 合言葉を、元に戻せない形（SHA-256 の16進）にする。入力する人の合言葉は、この値だけを保存する */
+function hashToken_(token) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token), Utilities.Charset.UTF_8);
+  return bytes.map(function (b) {
+    var v = b < 0 ? b + 256 : b;
+    return ('0' + v.toString(16)).slice(-2);
+  }).join('');
+}
+
+/** 管理者でなければ拒否する */
+function requireAdmin_(auth) {
+  if (!auth || auth.role !== 'admin') {
+    throw new Error('この操作は管理者だけができます');
+  }
+}
+
+/** 記録を編集・削除してよいか。管理者は全部、入力する人は自分が保存した記録だけ */
+function canEditItem_(item, auth) {
+  if (!auth) { return false; }
+  if (auth.role === 'admin') { return true; }
+  return !!auth.userId && item.savedBy === auth.userId;
+}
+
+function requireCanEdit_(item, auth, verb) {
+  if (!canEditItem_(item, auth)) {
+    throw new Error('この記録は、保存した人と管理者だけが' + verb + 'できます');
+  }
+}
+
+/** 画面に返す記録の形にする（保存者の ID は出さず、編集できるかを添える。管理者には保存者の名前も添える） */
+function itemForClient_(item, auth, userNames) {
+  var copy = {};
+  Object.keys(item).forEach(function (key) {
+    if (key !== 'savedBy') { copy[key] = item[key]; }
+  });
+  copy.canEdit = canEditItem_(item, auth);
+  if (userNames) {
+    copy.savedByName = item.savedBy ? (userNames[item.savedBy] || '（削除された利用者）') : '';
+  }
+  return copy;
+}
+
+// ---- 入力する人（利用者）の管理 ------------------------------------
+
+/** 入力する人の一覧。形が不正な要素は無視する */
+function getUsers_() {
+  return (readJsonList_(USERS_PROPERTY) || []).filter(function (u) {
+    return u && typeof u.id === 'string' && typeof u.name === 'string' && typeof u.hash === 'string' && u.id && u.hash;
+  });
+}
+
+function userNameMap_() {
+  var map = {};
+  getUsers_().forEach(function (u) { map[u.id] = u.name; });
+  return map;
+}
+
+/** 画面に返す利用者の形（合言葉の値は含めない） */
+function publicUser_(u) {
+  return { id: u.id, name: u.name, createdAt: u.createdAt || '', disabled: !!u.disabled };
+}
+
+function handleListUsers_() {
+  return { ok: true, users: getUsers_().map(publicUser_) };
+}
+
+/** 入力する人を追加し、その人用の合言葉を作る。合言葉はこの応答で1回だけ返し、保存するのは元に戻せない値だけ */
+function handleAddUser_(body) {
+  var name = String(body.name || '').trim();
+  if (!name) { throw new Error('名前を入力してください'); }
+  if (name.length > 30) { throw new Error('名前は30文字以内にしてください'); }
+  var users = getUsers_();
+  if (users.length >= MAX_USERS) { throw new Error('追加できる人数は' + MAX_USERS + '人までです'); }
+  if (users.some(function (u) { return u.name === name; })) { throw new Error('同じ名前の人がすでにいます: ' + name); }
+  var token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  var user = {
+    id: Utilities.getUuid(),
+    name: name,
+    hash: hashToken_(token),
+    createdAt: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss'),
+    disabled: false
+  };
+  users.push(user);
+  writeJsonList_(USERS_PROPERTY, users);
+  return { ok: true, user: publicUser_(user), token: token, users: users.map(publicUser_) };
+}
+
+/** 入力する人を止める・再開する（記録はそのまま残る） */
+function handleSetUserDisabled_(body) {
+  var id = String(body.id || '');
+  var users = getUsers_();
+  var target = users.filter(function (u) { return u.id === id; })[0];
+  if (!target) { throw new Error('その人は見つかりません'); }
+  target.disabled = body.disabled === true;
+  writeJsonList_(USERS_PROPERTY, users);
+  return { ok: true, users: users.map(publicUser_) };
+}
+
+/** 入力する人を消す。その人が保存した記録は残り、管理者だけが編集・削除できる */
+function handleRemoveUser_(body) {
+  var id = String(body.id || '');
+  var users = getUsers_();
+  var rest = users.filter(function (u) { return u.id !== id; });
+  if (rest.length === users.length) { throw new Error('その人は見つかりません'); }
+  writeJsonList_(USERS_PROPERTY, rest);
+  return { ok: true, users: rest.map(publicUser_) };
 }
 
 /** スクリプトプロパティを読む（未設定・読み取り失敗は空文字） */
@@ -189,9 +338,12 @@ function configForClient_() {
 /**
  * 画面の初期表示に必要な設定を返す（秘密情報は含めない）。
  */
-function handleBootstrap_() {
+function handleBootstrap_(auth) {
+  var isAdmin = !!auth && auth.role === 'admin';
   return {
     ok: true,
+    role: isAdmin ? 'admin' : 'user',
+    userName: auth ? auth.name : '',
     config: configForClient_(),
     categories: getCategories_(),
     tags: getTags_(),
@@ -201,9 +353,10 @@ function handleBootstrap_() {
     claudeConfigured: !!getProperty_('ANTHROPIC_API_KEY'),
     model: getProperty_('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL,
     // 保存先スプレッドシートの URL（開けるかどうかは、シートの共有設定と開く人のログインで決まる）
-    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+    // 入力する人には出さない（保存先のシートを開けるのは管理者だけ）
+    spreadsheetUrl: isAdmin ? SpreadsheetApp.getActiveSpreadsheet().getUrl() : '',
     archivePublic: getProperty_('ARCHIVE_PUBLIC').toLowerCase() === 'true',
-    usageThisMonth: summarizeUsageThisMonth_(),
+    usageThisMonth: isAdmin ? summarizeUsageThisMonth_() : null,
     publicSpreadsheetUrl: publicSpreadsheetUrl_()
   };
 }
@@ -1634,7 +1787,7 @@ function normalizeTagsInput_(raw) {
 }
 
 /** 保存内容を、項目ごとのセルの値（無害化済み）にする */
-function buildCells_(item, savedAt, id) {
+function buildCells_(item, savedAt, id, savedBy) {
   var cells = {
     savedAt: savedAt,
     kind: findByKey_(getKinds_(), item.kind).label,
@@ -1655,7 +1808,8 @@ function buildCells_(item, savedAt, id) {
     talk: item.talk,
     joinUrl: item.joinUrl,
     applyUrl: item.applyUrl,
-    postedAt: item.postedAt
+    postedAt: item.postedAt,
+    savedBy: savedBy || ''
   };
   Object.keys(cells).forEach(function (key) { cells[key] = sanitizeCellText_(cells[key]); });
   return cells;
@@ -1692,6 +1846,7 @@ function rowToItem_(row, cols) {
     talk: str('talk'),
     joinUrl: str('joinUrl'),
     applyUrl: str('applyUrl'),
+    savedBy: str('savedBy').trim(),
     // 手でシートに日付を入れると Date になり「yyyy-MM-dd HH:mm:ss」に直されるので、日付の部分だけ使う。読めなければ空
     postedAt: (function (v) { return isValidIsoDate_(v) ? v : ''; })(str('postedAt').trim().slice(0, 10))
   };
@@ -1769,7 +1924,7 @@ function findDuplicateByUrl_(url, excludeId) {
 }
 
 /** 保存（action=save）。同じ URL があれば force=true のときだけ保存する */
-function handleSave_(body) {
+function handleSave_(body, auth) {
   var item = validatePostInput_(body);
   var duplicate = findDuplicateByUrl_(item.url, '');
   if (duplicate && body.force !== true) {
@@ -1778,7 +1933,7 @@ function handleSave_(body) {
   var savedAt = Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss');
   var id = Utilities.getUuid();
   var ctx = openSheet_();
-  var cells = buildCells_(item, savedAt, id);
+  var cells = buildCells_(item, savedAt, id, auth ? auth.userId : '');
   // 自分で足した列は空欄のまま、アプリの列だけを見出しの位置に入れる
   var row = [];
   for (var c = 0; c < ctx.sheet.getLastColumn(); c++) { row.push(''); }
@@ -1816,34 +1971,36 @@ function findEntryById_(ctx, id) {
 }
 
 /** 編集（action=update）。登録日時と ID はそのまま残す */
-function handleUpdate_(body) {
+function handleUpdate_(body, auth) {
   var id = String(body.id || '').trim();
   if (!id) { throw new Error('編集する投稿が指定されていません'); }
   var item = validatePostInput_(body);
   var ctx = openSheet_();
   var entry = findEntryById_(ctx, id);
   if (!entry) { throw new Error('編集する投稿が見つかりません（削除された可能性があります）'); }
+  requireCanEdit_(entry.item, auth, '編集');
 
   var duplicate = findDuplicateByUrl_(item.url, id);
   if (duplicate && body.force !== true) {
     return { ok: false, duplicate: duplicate, error: '同じ URL がほかの投稿に保存されています（' + duplicate.title + '）' };
   }
   // アプリの列だけを書き換える（自分で足した列の値や数式は触らない）。登録日時と ID は変えない
-  var cells = buildCells_(item, entry.item.savedAt, id);
+  var cells = buildCells_(item, entry.item.savedAt, id, entry.item.savedBy);
   var targets = FIELD_ORDER
-    .filter(function (key) { return key !== 'savedAt' && key !== 'id'; })
+    .filter(function (key) { return key !== 'savedAt' && key !== 'id' && key !== 'savedBy'; })
     .map(function (key) { return { col: ctx.cols[key], value: cells[key] }; });
   writeCellsInRuns_(ctx.sheet, entry.rowNumber, targets);
   return { ok: true, id: id, publicSheet: syncPublicSheetSafely_() };
 }
 
 /** 削除（action=delete）。行ごと削除する（スプレッドシートの版の履歴からは戻せる） */
-function handleDelete_(body) {
+function handleDelete_(body, auth) {
   var id = String(body.id || '').trim();
   if (!id) { throw new Error('削除する投稿が指定されていません'); }
   var ctx = openSheet_();
   var entry = findEntryById_(ctx, id);
   if (!entry) { throw new Error('削除する投稿が見つかりません'); }
+  requireCanEdit_(entry.item, auth, '削除');
   ctx.sheet.deleteRow(entry.rowNumber);
   return { ok: true, id: id, publicSheet: syncPublicSheetSafely_() };
 }
@@ -1855,7 +2012,8 @@ function handleDelete_(body) {
  *   tags: 選んだタグ。tagMode が 'and' ならすべてを持つもの、それ以外（既定）はどれか1つでも持つもの（OR）
  *   offset: 何件目から（PAGE_SIZE 件ずつ）
  */
-function handleSearch_(body) {
+function handleSearch_(body, auth) {
+  var userNames = auth && auth.role === 'admin' ? userNameMap_() : null;
   var keyword = String(body.keyword || '').trim().toLowerCase();
   var category = String(body.category || '').trim();
   var kind = String(body.kind || '').trim();
@@ -1883,7 +2041,7 @@ function handleSearch_(body) {
     matched++;
     if (matched <= offset) { continue; }
     if (items.length >= PAGE_SIZE) { hasMore = true; break; }
-    items.push(item);
+    items.push(itemForClient_(item, auth, userNames));
   }
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
 }

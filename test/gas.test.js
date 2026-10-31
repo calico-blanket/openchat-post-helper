@@ -170,6 +170,10 @@ function load({ props, fetch } = {}) {
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: {
       getUuid: () => 'uuid-' + (++uuid),
+      // 本物と同じく、符号つきのバイト列（-128〜127）で返す
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (algorithm, value) => Array.from(require('node:crypto').createHash('sha256').update(String(value), 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b)),
       // 待つ時間は記録だけして、実際には待たない
       sleep: (ms) => { calls.push({ sleep: ms }); },
       // 保存のたびに1秒進む固定の時計（日時の文字列が決定的になるように）
@@ -305,7 +309,7 @@ test('save: 1行1件で、見出しの名前どおりの列に書き込む（新
   assert.deepStrictEqual(Array.from(env.sheet().values[0]), [
     '登録日時', '種別', '発信者', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
     'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'コメント', 'ID',
-    'トーク本文', '参加URL', '申込URL', '発信日'
+    'トーク本文', '参加URL', '申込URL', '発信日', '保存者ID'
   ]);
   assert.strictEqual(cell(env, 1, '種別'), 'スケジュール');
   assert.strictEqual(cell(env, 1, '発信者'), '運営アカウント');
@@ -414,7 +418,7 @@ test('既存のシート（以前の15列の並び）には、足りない見出
   assert.strictEqual(item.title, '古い行');
   assert.strictEqual(item.source, 'note');
   assert.strictEqual(item.author, '');
-  assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL', '発信日']);
+  assert.deepStrictEqual(Array.from(env.sheet().values[0]).slice(15), ['発信者', 'トーク本文', '参加URL', '申込URL', '発信日', '保存者ID']);
 
   assert.strictEqual(post(env, validPost({ url: '', title: '新しい行', author: '運営アカウント', talk: 'トーク' })).ok, true);
   assert.strictEqual(cell(env, 2, 'タイトル'), '新しい行');
@@ -429,7 +433,7 @@ test('列を並べ替えても、自分で足した列がどこにあっても�
   // 発信者を2列目へ移し、4列目に自分の列「投稿済み」を足したシートを再現する
   const header = ['登録日時', '発信者', '種別', '投稿済み', 'ソース', 'カテゴリ', 'タイトル', '概略', 'URL',
     'スレッド詳細（原文）', 'タグ', '開催日時（ISO）', '場所', '申込締切', '出演者', 'メモ', 'ID',
-    'トーク本文', '参加URL', '申込URL', '発信日'];
+    'トーク本文', '参加URL', '申込URL', '発信日', '保存者ID'];
   env.sheet().values.length = 0;
   env.sheet().raw.length = 0;
   env.sheet().values.push(header.slice());
@@ -466,7 +470,7 @@ test('同じ見出しが2つあれば左の列を使い、見出しが空の列�
   assert.strictEqual(ctx.cols.title, 1);
   // 足りない項目は右端（5列目以降）に足される
   assert.strictEqual(ctx.cols.savedAt, 5);
-  assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 19);
+  assert.strictEqual(Array.from(sheet.values[0]).length, 4 + 20);
 });
 
 test('種別: 画面から追加でき、AI の選択肢・保存・検索・bootstrap に反映される。組み込みは消せない', () => {
@@ -2150,4 +2154,155 @@ test('testClaude: 未設定なら案内を出し、設定済みなら HTTP の�
   env2.context.testClaude();
   assert.ok(logs2.some((l) => /HTTP 401（HTTP 401: authentication_error）/.test(l)), logs2.join('|'));
   assert.ok(!logs2.join('\n').includes('claude-secret-key'));
+});
+
+// ---- 入力する人（利用者）の合言葉と権限 --------------------------------
+
+/** 管理者が入力する人を追加し、その人の合言葉を返す */
+function addUser(env, name) {
+  const added = post(env, { action: 'addUser', name });
+  assert.strictEqual(added.ok, true, JSON.stringify(added));
+  return added;
+}
+
+test('利用者: 追加すると合言葉が1回だけ返り、GAS には元に戻せない値しか保存しない', () => {
+  const env = load();
+  // 本物の UUID（ハイフン込み36文字）で、合言葉が十分な長さの16進になることを確かめる
+  env.context.Utilities.getUuid = () => require('node:crypto').randomUUID();
+  const added = addUser(env, '花子');
+  assert.match(added.token, /^[0-9a-f]{64}$/);
+  assert.strictEqual(added.users.length, 1);
+  assert.ok(!('hash' in added.users[0]) && !('token' in added.users[0]));
+  const stored = env.props.USERS_JSON;
+  assert.ok(!stored.includes(added.token), '合言葉そのものを保存してはいけない');
+  assert.ok(/"hash":"[0-9a-f]{64}"/.test(stored));
+  // 一覧にも合言葉・ハッシュは出ない
+  const listed = post(env, { action: 'listUsers' });
+  assert.ok(!JSON.stringify(listed).includes(added.token));
+  assert.ok(!JSON.stringify(listed).includes('hash'));
+});
+
+test('利用者: 名前の検証（空・長すぎ・重複）', () => {
+  const env = load();
+  addUser(env, '花子');
+  assert.match(post(env, { action: 'addUser', name: '  ' }).error, /名前を入力/);
+  assert.match(post(env, { action: 'addUser', name: 'あ'.repeat(31) }).error, /30文字以内/);
+  assert.match(post(env, { action: 'addUser', name: '花子' }).error, /同じ名前/);
+});
+
+test('利用者: 入力する人の合言葉で、入力・保存・検索ができ、bootstrap は管理者向けの情報を含まない', () => {
+  const env = load();
+  const { token } = addUser(env, '花子');
+  const boot = post(env, { action: 'bootstrap' }, token);
+  assert.strictEqual(boot.ok, true);
+  assert.strictEqual(boot.role, 'user');
+  assert.strictEqual(boot.userName, '花子');
+  assert.strictEqual(boot.spreadsheetUrl, '');
+  assert.strictEqual(boot.usageThisMonth, null);
+  const adminBoot = post(env, { action: 'bootstrap' });
+  assert.strictEqual(adminBoot.role, 'admin');
+  assert.notStrictEqual(adminBoot.spreadsheetUrl, '');
+  assert.strictEqual(post(env, validPost(), token).ok, true);
+  assert.strictEqual(post(env, { action: 'search' }, token).items.length, 1);
+});
+
+test('利用者: 入力する人は、管理者だけの操作（設定の変更・利用者の管理・公開用シートの同期）ができない', () => {
+  const env = load();
+  const { token } = addUser(env, '花子');
+  const adminOnly = [
+    { action: 'addCategory', name: 'X' }, { action: 'removeCategory', name: 'お知らせ' },
+    { action: 'reorderCategories', categories: [] }, { action: 'addTag', name: 'X' },
+    { action: 'removeTag', name: 'AI' }, { action: 'reorderTags', tags: [] },
+    { action: 'addKind', label: 'X' }, { action: 'removeKind', key: 'custom_x' },
+    { action: 'addAuthor', name: 'X' }, { action: 'removeAuthor', name: 'X' },
+    { action: 'reorderAuthors', authors: [] }, { action: 'syncPublicSheet' },
+    { action: 'listUsers' }, { action: 'addUser', name: '太郎' },
+    { action: 'setUserDisabled', id: 'x', disabled: true }, { action: 'removeUser', id: 'x' }
+  ];
+  adminOnly.forEach((body) => {
+    const result = post(env, body, token);
+    assert.strictEqual(result.ok, false, body.action);
+    assert.match(result.error, /管理者だけ/, body.action);
+  });
+  // 管理者の合言葉なら、同じ操作が通る
+  assert.strictEqual(post(env, { action: 'addCategory', name: '新カテゴリ' }).ok, true);
+});
+
+test('利用者: 編集・削除できるのは、自分が保存した記録だけ（管理者は全部）。保存者の ID は画面に返さない', () => {
+  const env = load();
+  const hanako = addUser(env, '花子');
+  const taro = addUser(env, '太郎');
+  const mine = post(env, validPost({ url: 'https://example.com/hanako' }), hanako.token);
+  const others = post(env, validPost({ url: 'https://example.com/taro' }), taro.token);
+  const adminRecord = post(env, validPost({ url: 'https://example.com/admin' }));
+  assert.strictEqual(cell(env, 1, '保存者ID'), hanako.user.id);
+  assert.strictEqual(cell(env, 3, '保存者ID'), '');
+
+  // 花子の検索結果: 自分の記録だけ canEdit。保存者の ID・名前は含まれない
+  const found = post(env, { action: 'search' }, hanako.token);
+  const byUrl = (u) => found.items.find((i) => i.url === u);
+  assert.strictEqual(byUrl('https://example.com/hanako').canEdit, true);
+  assert.strictEqual(byUrl('https://example.com/taro').canEdit, false);
+  assert.strictEqual(byUrl('https://example.com/admin').canEdit, false);
+  assert.ok(!JSON.stringify(found).includes('savedBy'));
+  assert.ok(!JSON.stringify(found).includes(hanako.user.id));
+
+  // 他の人の記録・管理者の記録は、編集も削除もできない
+  [others.id, adminRecord.id].forEach((id) => {
+    assert.match(post(env, validPost({ action: 'update', id, title: '書き換え' }), hanako.token).error, /保存した人と管理者だけが編集/);
+    assert.match(post(env, { action: 'delete', id }, hanako.token).error, /保存した人と管理者だけが削除/);
+  });
+  assert.strictEqual(post(env, { action: 'search' }).items.find((i) => i.id === others.id).title, 'タイトル');
+
+  // 自分の記録は編集・削除できる。更新しても保存者は変わらない
+  assert.strictEqual(post(env, validPost({ action: 'update', id: mine.id, url: 'https://example.com/hanako', title: '直した' }), hanako.token).ok, true);
+  assert.strictEqual(cell(env, 1, 'タイトル'), '直した');
+  assert.strictEqual(cell(env, 1, '保存者ID'), hanako.user.id);
+  assert.strictEqual(post(env, { action: 'delete', id: mine.id }, hanako.token).ok, true);
+
+  // 管理者は他の人の記録も編集でき、保存者の名前が見える。編集しても保存者は変わらない
+  const adminView = post(env, { action: 'search' });
+  assert.strictEqual(adminView.items.find((i) => i.id === others.id).savedByName, '太郎');
+  assert.strictEqual(adminView.items.find((i) => i.id === others.id).canEdit, true);
+  assert.strictEqual(post(env, validPost({ action: 'update', id: others.id, url: 'https://example.com/taro', title: '管理者が直した' })).ok, true);
+  assert.strictEqual(cell(env, 1, '保存者ID'), taro.user.id);
+});
+
+test('利用者: 止めた人の合言葉は使えなくなり、再開すると使える。消した人の記録は管理者だけが直せる', () => {
+  const env = load();
+  const hanako = addUser(env, '花子');
+  const saved = post(env, validPost(), hanako.token);
+  const id = hanako.user.id;
+
+  assert.strictEqual(post(env, { action: 'setUserDisabled', id, disabled: true }).users[0].disabled, true);
+  assert.match(post(env, { action: 'bootstrap' }, hanako.token).error, /いまは使えません/);
+  assert.strictEqual(post(env, { action: 'setUserDisabled', id, disabled: false }).users[0].disabled, false);
+  assert.strictEqual(post(env, { action: 'bootstrap' }, hanako.token).ok, true);
+
+  assert.strictEqual(post(env, { action: 'removeUser', id }).users.length, 0);
+  assert.match(post(env, { action: 'bootstrap' }, hanako.token).error, /合言葉が一致しません/);
+  // 消した人の記録は残り、管理者の検索では「削除された利用者」と出る
+  const item = post(env, { action: 'search' }).items.find((i) => i.id === saved.id);
+  assert.strictEqual(item.savedByName, '（削除された利用者）');
+  assert.strictEqual(item.canEdit, true);
+  assert.match(post(env, { action: 'setUserDisabled', id: 'no-such', disabled: true }).error, /見つかりません/);
+});
+
+test('利用者: SHARED_TOKEN が未設定なら、入力する人の合言葉も含めてすべて拒否する', () => {
+  const env = load();
+  const { token } = addUser(env, '花子');
+  delete env.props.SHARED_TOKEN;
+  assert.match(post(env, { action: 'bootstrap' }, token).error, /SHARED_TOKEN/);
+});
+
+test('利用者: 空・文字列でない・保存されているハッシュそのものを送っても通らない', () => {
+  const env = load();
+  addUser(env, '花子');
+  const stored = JSON.parse(env.props.USERS_JSON)[0].hash;
+  const body = { action: 'bootstrap' };
+  assert.strictEqual(post(env, body, '').ok, false);
+  assert.strictEqual(post(env, body, null).ok, false);
+  assert.strictEqual(post(env, body, 12345).ok, false);
+  // 保存されている値をそのまま合言葉として送っても、さらにハッシュされるので一致しない
+  assert.strictEqual(post(env, body, stored).ok, false);
 });

@@ -261,6 +261,8 @@
             <p id="fTagEmpty" class="help" hidden>タグはまだありません。設定画面で追加できます。</p>
           </fieldset>
 
+          <p id="savedByNote" class="help" hidden></p>
+          <p id="readOnlyNotice" class="inline-warning" role="status" hidden>この記録は、保存した人と管理者だけが編集・削除できます。コピーして使うことはできます。</p>
           <div class="actions">
             <button type="button" id="saveButton" class="button primary">保存する</button>
             <button type="button" id="deleteButton" class="button danger" hidden>この投稿を削除</button>
@@ -310,6 +312,13 @@
     <section id="settingsView" class="view" aria-labelledby="settingsHeading" hidden>
       <h1 id="settingsHeading" tabindex="-1">設定</h1>
 
+      <section id="invitedBox" aria-labelledby="invitedHeading" hidden>
+        <h2 id="invitedHeading">接続</h2>
+        <p id="invitedState">招待リンクで接続しています。合言葉はこの端末に保存されていて、画面には表示しません。</p>
+        <p class="help">別の人に変わるときや、使わなくなったときは、接続を解除してください（この端末の接続の設定が消えます。保存した記録は消えません）。</p>
+        <button type="button" id="disconnectButton" class="button secondary">接続を解除する</button>
+      </section>
+
       <form id="connectionForm">
         <h2>接続</h2>
         <div class="field">
@@ -325,7 +334,25 @@
         <p id="serverInfo" class="help"></p>
       </form>
 
-      <section aria-labelledby="sheetHeading">
+      <section data-admin-only aria-labelledby="usersHeading" hidden>
+        <h2 id="usersHeading" tabindex="-1">入力する人（利用者）</h2>
+        <p class="help">あなたの合言葉は、あなただけが知っていれば足ります。ほかの人には、名前ごとに別の合言葉を作り、「招待リンク」で渡します。入力する人は、入力・保存・検索ができます。編集・削除は、自分が保存した記録だけです。設定の変更はできません。</p>
+        <ul id="userManageList" class="manage-list"></ul>
+        <div class="add-row">
+          <label for="newUserName">追加する人の名前（30文字まで）</label>
+          <input type="text" id="newUserName" maxlength="30" autocomplete="off">
+          <button type="button" id="addUserButton" class="button secondary">追加して招待リンクを作る</button>
+        </div>
+        <div id="inviteResult" class="inline-warning" role="status" hidden>
+          <p id="inviteResultText"></p>
+          <label for="inviteLinkField">招待リンク（この画面を閉じると、もう表示できません）</label>
+          <input type="text" id="inviteLinkField" readonly>
+          <button type="button" id="copyInviteButton" class="button secondary">リンクをコピー</button>
+          <p class="help">このリンクは合言葉と同じです。その人にだけ、安全な方法で渡してください。リンクを開くと、合言葉は自動で設定され、アドレス欄からは消えます。他の人に知られたときは、その人を「止める」か「削除」して、新しく作り直してください。</p>
+        </div>
+      </section>
+
+      <section data-admin-only aria-labelledby="sheetHeading">
         <h2 id="sheetHeading">スプレッドシート</h2>
         <p id="sheetLinkArea" hidden>
           <a id="sheetLink" href="#" target="_blank" rel="noopener noreferrer">保存先のスプレッドシートを開く（新しいタブ）</a>
@@ -333,14 +360,14 @@
         <p id="sheetHelp" class="help">接続できると、ここに保存先のスプレッドシートへのリンクが出ます。開けるのは、シートの共有設定で閲覧を許可された Google アカウントの人だけです（「リンクを知っている全員」にすると、URL を知っている人は誰でも見られます）。</p>
       </section>
 
-      <section aria-labelledby="publicSheetHeading">
+      <section data-admin-only aria-labelledby="publicSheetHeading">
         <h2 id="publicSheetHeading" tabindex="-1">公開用スプレッドシート</h2>
         <p id="publicSheetLinkArea" hidden><a id="publicSheetLink" href="#" target="_blank" rel="noopener noreferrer">公開用スプレッドシートを開く（新しいタブ）</a></p>
         <p id="publicSheetState" class="help">保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID とトーク本文は載せません）。</p>
         <button type="button" id="syncPublicSheetButton" class="button secondary" hidden>公開用シートを作り直す</button>
       </section>
 
-      <section aria-labelledby="usageHeading">
+      <section data-admin-only aria-labelledby="usageHeading">
         <h2 id="usageHeading">AI の使用量（概算）</h2>
         <p id="usageSummary">接続すると、今月の概算が表示されます。</p>
         <p class="help">「文章を整える」「要約する」で使ったトークン数から、料金表（gas/Config.gs の pricing）で計算した概算です。1回ごとの記録は、スプレッドシートの「利用量」シートにあります。無料枠で使っている場合、実際の請求は 0 円です。正確な金額は、Google AI Studio と TypeSafe の管理画面で確かめてください。</p>
@@ -352,7 +379,7 @@
         <p id="archiveState" class="help">合言葉なしで誰でも読める、記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。</p>
       </section>
 
-      <section aria-labelledby="kindManageHeading">
+      <section data-admin-only aria-labelledby="kindManageHeading">
         <h2 id="kindManageHeading" tabindex="-1">種別</h2>
         <p class="help">トークの形と、AI が判定する選択肢を決めます。「日時あり」の種別は、スケジュールと同じく日時・場所の行が出ます。最初の3つは削除できません。</p>
         <ul id="kindManageList" class="manage-list"></ul>
@@ -366,7 +393,7 @@
         </div>
       </section>
 
-      <section aria-labelledby="categoryManageHeading">
+      <section data-admin-only aria-labelledby="categoryManageHeading">
         <h2 id="categoryManageHeading" tabindex="-1">カテゴリ</h2>
         <ul id="categoryManageList" class="manage-list"></ul>
         <div class="add-row">
@@ -376,7 +403,7 @@
         </div>
       </section>
 
-      <section aria-labelledby="tagManageHeading">
+      <section data-admin-only aria-labelledby="tagManageHeading">
         <h2 id="tagManageHeading" tabindex="-1">タグ</h2>
         <ul id="tagManageList" class="manage-list"></ul>
         <div class="add-row">
@@ -386,7 +413,7 @@
         </div>
       </section>
 
-      <section aria-labelledby="authorManageHeading">
+      <section data-admin-only aria-labelledby="authorManageHeading">
         <h2 id="authorManageHeading" tabindex="-1">発信者／出演者の候補</h2>
         <p class="help">結果画面の「発信者／出演者」の下に、ボタンとして並びます。</p>
         <ul id="authorManageList" class="manage-list"></ul>
