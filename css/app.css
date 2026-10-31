@@ -92,6 +92,12 @@ body {
   font: inherit;
   cursor: pointer;
 }
+/* 別のページへのリンク（「使い方」など）も、ボタンと同じ見た目にする */
+a.nav-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
 .nav-button[aria-current="page"] {
   background: #fff;
   color: var(--primary);
@@ -344,3 +350,11 @@ textarea { resize: vertical; }
 .pick-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .pick-button[aria-pressed="true"] { background: var(--primary); color: #fff; }
 .pick-button[aria-pressed="true"]::before { content: "✓ "; }
+
+/* ---- 使い方のページ（help.html） ---- */
+.help-page ol, .help-page ul { padding-left: 1.5em; }
+.help-page li { margin: 6px 0; }
+.help-page li > ul { margin-top: 4px; }
+.help-toc ol { margin: 0; }
+.help-faq dt { font-weight: 700; margin-top: 16px; }
+.help-faq dd { margin: 4px 0 0; }
