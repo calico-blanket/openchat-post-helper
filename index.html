@@ -312,6 +312,19 @@
     <section id="settingsView" class="view" aria-labelledby="settingsHeading" hidden>
       <h1 id="settingsHeading" tabindex="-1">設定</h1>
 
+      <section id="claimBox" aria-labelledby="claimHeading" hidden>
+        <h2 id="claimHeading" tabindex="-1">名前を登録して始める</h2>
+        <p>招待リンクから開きました。あなたの名前を入れて「登録する」を押すと、この端末で使えるようになります。この招待リンクは1回だけ使えます。</p>
+        <div class="field">
+          <label for="claimName">あなたの名前（30文字まで。ほかの人と同じ名前は使えません）</label>
+          <input type="text" id="claimName" maxlength="30" autocomplete="name">
+        </div>
+        <div class="actions">
+          <button type="button" id="claimButton" class="button primary">登録する</button>
+          <button type="button" id="claimCancelButton" class="button secondary">やめる</button>
+        </div>
+      </section>
+
       <section id="invitedBox" aria-labelledby="invitedHeading" hidden>
         <h2 id="invitedHeading">接続</h2>
         <p id="invitedState">招待リンクで接続しています。合言葉はこの端末に保存されていて、画面には表示しません。</p>
@@ -336,19 +349,18 @@
 
       <section data-admin-only aria-labelledby="usersHeading" hidden>
         <h2 id="usersHeading" tabindex="-1">入力する人（利用者）</h2>
-        <p class="help">あなたの合言葉は、あなただけが知っていれば足ります。ほかの人には、名前ごとに別の合言葉を作り、「招待リンク」で渡します。入力する人は、入力・保存・検索ができます。編集・削除は、自分が保存した記録だけです。設定の変更はできません。</p>
+        <p class="help">あなたの合言葉は、あなただけが知っていれば足ります。ほかの人には「招待リンク」を渡します。リンクを開いた人が自分の名前を入れると、その人用の合言葉が作られ、その端末に保存されます。入力する人は、入力・保存・検索ができます。編集・削除は、自分が保存した記録だけです。設定の変更はできません。</p>
+        <h3>登録した人</h3>
         <ul id="userManageList" class="manage-list"></ul>
-        <div class="add-row">
-          <label for="newUserName">追加する人の名前（30文字まで）</label>
-          <input type="text" id="newUserName" maxlength="30" autocomplete="off">
-          <button type="button" id="addUserButton" class="button secondary">追加して招待リンクを作る</button>
-        </div>
+        <h3>まだ使われていない招待</h3>
+        <ul id="inviteManageList" class="manage-list"></ul>
+        <button type="button" id="createInviteButton" class="button secondary">招待リンクを作る</button>
         <div id="inviteResult" class="inline-warning" role="status" hidden>
-          <p id="inviteResultText"></p>
+          <p>招待リンクを作りました。<strong>1人にだけ</strong>渡してください。最初に開いて名前を登録した1人だけが使えます（7日間有効）。</p>
           <label for="inviteLinkField">招待リンク（この画面を閉じると、もう表示できません）</label>
           <input type="text" id="inviteLinkField" readonly>
           <button type="button" id="copyInviteButton" class="button secondary">リンクをコピー</button>
-          <p class="help">このリンクは合言葉と同じです。その人にだけ、安全な方法で渡してください。リンクを開くと、合言葉は自動で設定され、アドレス欄からは消えます。他の人に知られたときは、その人を「止める」か「削除」して、新しく作り直してください。</p>
+          <p class="help">渡す前にほかの人に知られたときや、不要になったときは、「まだ使われていない招待」から取り消してください。</p>
         </div>
       </section>
 

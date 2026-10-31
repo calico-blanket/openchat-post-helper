@@ -11,6 +11,7 @@
 //   スクリプトプロパティ（秘密情報はここだけに置く）:
 //     SHARED_TOKEN      管理者の合言葉（必須。未設定なら全 API を拒否する。管理者だけが知る）
 //     USERS_JSON        入力する人の一覧（画面の「利用者」で管理。合言葉そのものは持たず、元に戻せない形にした値だけを持つ）
+//     INVITES_JSON      まだ使われていない招待（1回だけ・7日間。招待の印も、元に戻せない形にした値だけを持つ）
 //     GEMINI_API_KEY    Gemini の API キー（必須）
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
@@ -41,11 +42,16 @@ var KINDS_PROPERTY = 'KINDS_JSON';
 var MAX_CUSTOM_KINDS = 20;
 var USERS_PROPERTY = 'USERS_JSON';
 var MAX_USERS = 30;
+// 招待（名前を入れる前の、1回だけ使える招待リンク）。使われないまま INVITE_DAYS 日たつと無効
+var INVITES_PROPERTY = 'INVITES_JSON';
+var INVITE_DAYS = 7;
+var MAX_PENDING_INVITES = 30;
+var INVALID_INVITE_MESSAGE = 'この招待リンクは使えません（使用済み・期限切れ・取り消し済みのどれかです）。招待した人に、新しいリンクを作ってもらってください';
 // 管理者だけが呼べる action（入力する人は呼べない）
 var ADMIN_ONLY_ACTIONS = [
   'addCategory', 'removeCategory', 'reorderCategories', 'addTag', 'removeTag', 'reorderTags',
   'addKind', 'removeKind', 'addAuthor', 'removeAuthor', 'reorderAuthors', 'syncPublicSheet',
-  'listUsers', 'addUser', 'setUserDisabled', 'removeUser'
+  'listUsers', 'createInvite', 'cancelInvite', 'setUserDisabled', 'removeUser'
 ];
 
 // 保存先シート。1行1件。
@@ -103,10 +109,15 @@ function doGet(e) {
 /**
  * PWA からの POST を受け取る。本文は JSON（Content-Type は text/plain で届く）。
  * すべての action で、最初に合言葉を照合する。
+ * 例外は claimInvite（招待リンクからの名前の登録）だけ。まだ合言葉を持っていないので、
+ * 合言葉の代わりに、1回だけ使える招待の印（推測できない64桁）で照合する。
  */
 function doPost(e) {
   try {
     var body = parseJsonBody_(e);
+    if (String(body.action || '') === 'claimInvite') {
+      return jsonResponse_(withLock_(function () { return handleClaimInvite_(body); }));
+    }
     var auth = checkToken_(body.token);
 
     var action = String(body.action || '');
@@ -132,7 +143,8 @@ function doPost(e) {
       case 'reorderAuthors': return jsonResponse_(handleReorderList_(body.authors, 'author'));
       case 'syncPublicSheet': return jsonResponse_(withLock_(function () { return syncPublicSheet_(); }));
       case 'listUsers': return jsonResponse_(handleListUsers_());
-      case 'addUser': return jsonResponse_(withLock_(function () { return handleAddUser_(body); }));
+      case 'createInvite': return jsonResponse_(withLock_(function () { return handleCreateInvite_(); }));
+      case 'cancelInvite': return jsonResponse_(withLock_(function () { return handleCancelInvite_(body); }));
       case 'setUserDisabled': return jsonResponse_(withLock_(function () { return handleSetUserDisabled_(body); }));
       case 'removeUser': return jsonResponse_(withLock_(function () { return handleRemoveUser_(body); }));
       default:
@@ -257,19 +269,45 @@ function publicUser_(u) {
   return { id: u.id, name: u.name, createdAt: u.createdAt || '', disabled: !!u.disabled };
 }
 
-function handleListUsers_() {
-  return { ok: true, users: getUsers_().map(publicUser_) };
+/** 待っている招待（期限切れは除く）。形が不正な要素も無視する */
+function getInvites_() {
+  var now = Date.now();
+  return (readJsonList_(INVITES_PROPERTY) || []).filter(function (v) {
+    return v && typeof v.id === 'string' && typeof v.hash === 'string' && v.id && v.hash &&
+      typeof v.expiresAt === 'number' && v.expiresAt > now;
+  });
 }
 
-/** 入力する人を追加し、その人用の合言葉を作る。合言葉はこの応答で1回だけ返し、保存するのは元に戻せない値だけ */
-function handleAddUser_(body) {
-  var name = String(body.name || '').trim();
+/** 画面に返す招待の形（招待の印の値は含めない） */
+function publicInvite_(v) {
+  return {
+    id: v.id,
+    createdAt: v.createdAt || '',
+    expiresAt: Utilities.formatDate(new Date(v.expiresAt), TIME_ZONE, 'yyyy-MM-dd HH:mm')
+  };
+}
+
+/** 推測できない64桁の16進（合言葉・招待の印に使う） */
+function newSecret_() {
+  return (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+}
+
+function handleListUsers_() {
+  return { ok: true, users: getUsers_().map(publicUser_), invites: getInvites_().map(publicInvite_) };
+}
+
+/**
+ * 入力する人を作り、その人用の合言葉を返す（保存するのは元に戻せない値だけ）。
+ * 名前が正しくなければ Error を投げる（そのときは何も保存しない）。
+ */
+function createUser_(rawName) {
+  var name = String(rawName || '').trim();
   if (!name) { throw new Error('名前を入力してください'); }
   if (name.length > 30) { throw new Error('名前は30文字以内にしてください'); }
   var users = getUsers_();
-  if (users.length >= MAX_USERS) { throw new Error('追加できる人数は' + MAX_USERS + '人までです'); }
-  if (users.some(function (u) { return u.name === name; })) { throw new Error('同じ名前の人がすでにいます: ' + name); }
-  var token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  if (users.length >= MAX_USERS) { throw new Error('登録できる人数（' + MAX_USERS + '人）に達しています。招待した人に連絡してください'); }
+  if (users.some(function (u) { return u.name === name; })) { throw new Error('同じ名前の人がすでにいます。別の名前（名字を足すなど）にしてください'); }
+  var token = newSecret_();
   var user = {
     id: Utilities.getUuid(),
     name: name,
@@ -279,7 +317,58 @@ function handleAddUser_(body) {
   };
   users.push(user);
   writeJsonList_(USERS_PROPERTY, users);
-  return { ok: true, user: publicUser_(user), token: token, users: users.map(publicUser_) };
+  return { user: user, token: token };
+}
+
+/**
+ * 招待を作る（管理者）。招待の印はこの応答で1回だけ返し、保存するのは元に戻せない値だけ。
+ * 招待は1回だけ使え、INVITE_DAYS 日で無効になる。期限切れの招待は、ここで一覧から落とす。
+ */
+function handleCreateInvite_() {
+  var invites = getInvites_();
+  if (invites.length >= MAX_PENDING_INVITES) {
+    throw new Error('使われていない招待が' + MAX_PENDING_INVITES + '件あります。不要な招待を取り消してから作ってください');
+  }
+  var code = newSecret_();
+  var invite = {
+    id: Utilities.getUuid(),
+    hash: hashToken_(code),
+    createdAt: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss'),
+    expiresAt: Date.now() + INVITE_DAYS * 24 * 60 * 60 * 1000
+  };
+  invites.push(invite);
+  writeJsonList_(INVITES_PROPERTY, invites);
+  return { ok: true, code: code, invite: publicInvite_(invite), invites: invites.map(publicInvite_) };
+}
+
+/** まだ使われていない招待を取り消す（管理者） */
+function handleCancelInvite_(body) {
+  var id = String(body.id || '');
+  var invites = getInvites_();
+  var rest = invites.filter(function (v) { return v.id !== id; });
+  if (rest.length === invites.length) { throw new Error('その招待は見つかりません（使用済み・期限切れの可能性があります）'); }
+  writeJsonList_(INVITES_PROPERTY, rest);
+  return { ok: true, invites: rest.map(publicInvite_) };
+}
+
+/**
+ * 招待リンクを受け取った人が、名前を入れて登録する（合言葉なしで呼べる唯一の action）。
+ * 招待の印が有効なら、その人を作って合言葉を返し、招待は使用済みにする（一覧から消す）。
+ * 名前が正しくないときは、招待を残したまま Error を投げる（名前を直して、同じリンクでやり直せる）。
+ * 返すのは、その人の合言葉と名前だけ（ほかの人・記録・設定の情報は返さない）。
+ */
+function handleClaimInvite_(body) {
+  if (!getProperty_('SHARED_TOKEN')) {
+    throw new Error('GAS のスクリプトプロパティ SHARED_TOKEN（合言葉）が未設定のため、利用できません。README の手順で設定してください');
+  }
+  if (typeof body.code !== 'string' || !body.code) { throw new Error(INVALID_INVITE_MESSAGE); }
+  var hash = hashToken_(body.code);
+  var invites = getInvites_();
+  var invite = invites.filter(function (v) { return safeEquals_(v.hash, hash); })[0];
+  if (!invite) { throw new Error(INVALID_INVITE_MESSAGE); }
+  var created = createUser_(body.name);
+  writeJsonList_(INVITES_PROPERTY, invites.filter(function (v) { return v.id !== invite.id; }));
+  return { ok: true, token: created.token, name: created.user.name };
 }
 
 /** 入力する人を止める・再開する（記録はそのまま残る） */

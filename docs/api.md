@@ -12,7 +12,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 
 ## 共通
 
-- 本文には必ず `action` と `token`（合言葉）を入れます。合言葉は2種類あります: 管理者の合言葉（`SHARED_TOKEN`）と、管理者が追加した入力する人の合言葉（`USERS_JSON` の値と照合。止めた人の合言葉は使えない）。
+- 本文には必ず `action` と `token`（合言葉）を入れます（例外は `claimInvite` だけ。招待の印で照合します）。合言葉は2種類あります: 管理者の合言葉（`SHARED_TOKEN`）と、招待リンクから名前を登録した入力する人の合言葉（`USERS_JSON` の値と照合。止めた人の合言葉は使えない）。
 - 入力する人は、`analyze` `summarize` `save` `search` `bootstrap` と、自分が保存した記録の `update` `delete` だけを呼べます。それ以外の action（設定の変更・`syncPublicSheet`・下の利用者の管理）は「この操作は管理者だけができます」で拒否されます。他の人の記録の `update` `delete` も拒否されます。
 - スクリプトプロパティ `SHARED_TOKEN` が**未設定なら、すべての action を拒否**します（素通しにはしません）。
 - 失敗時は `{ "ok": false, "error": "日本語のメッセージ" }` を返します。
@@ -38,7 +38,9 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 | `syncPublicSheet` | なし | `count`（公開用スプレッドシートの「記録一覧」タブを作り直した件数）。未設定なら `skipped: true` |
 | `reorderAuthors` | `authors: []` | `authors` |
 | `listUsers` | なし | `users: [{ id, name, createdAt, disabled }]`（管理者だけ。合言葉・ハッシュは返さない） |
-| `addUser` | `name`（30文字まで・重複不可・30人まで） | `user` `users` ＋ `token`（その人の合言葉。**この応答だけ**。管理者だけ） |
+| `createInvite` | なし | `code`（招待の印。**この応答だけ**）`invite` `invites`（管理者だけ。1回だけ・7日間有効。使われていない招待は30件まで） |
+| `cancelInvite` | `id` | `invites`（まだ使われていない招待を取り消す。管理者だけ） |
+| `claimInvite` | `code` `name`（30文字まで・重複不可・30人まで）。**`token` は不要** | `token`（その人の合言葉）`name`。招待は使用済みになる。名前が正しくないときは招待を残したまま失敗する。使用済み・期限切れ・取り消し済み・知らない印は「この招待リンクは使えません」。`SHARED_TOKEN` 未設定なら拒否 |
 | `setUserDisabled` | `id` `disabled: boolean` | `users`（止めた人の記録は残る。管理者だけ） |
 | `removeUser` | `id` | `users`（その人が保存した記録は残り、管理者だけが編集・削除できる。管理者だけ） |
 
