@@ -2089,7 +2089,8 @@ test('analyze: Gemini が 503 のままなら Claude Haiku に切り替え、結
   assert.strictEqual(call.headers['x-api-key'], 'claude-secret-key');
   assert.strictEqual(call.headers['anthropic-version'], '2023-06-01');
   assert.strictEqual(call.body.model, 'claude-haiku-5-5');
-  assert.strictEqual(call.body.output_config.effort, 'low');
+  assert.strictEqual(call.body.output_config.effort, 'medium');
+  assert.strictEqual(call.body.max_tokens, 8192);
   assert.strictEqual(call.body.output_config.format.type, 'json_schema');
   assert.strictEqual(call.body.output_config.format.schema.additionalProperties, false);
   assert.ok(call.body.output_config.format.schema.properties.attendance.enum.includes('tv'));

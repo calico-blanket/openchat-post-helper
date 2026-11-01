@@ -1134,10 +1134,12 @@ function geminiSchemaToJsonSchema_(schema) {
 /**
  * Claude の Messages API のリクエスト（UrlFetchApp.fetch に渡す形）を作る純粋関数。
  *   options: apiKey / model / system / content（ブロックの配列）/ schema（JSON Schema。省略すると文章で返す）/ maxTokens
- * 考える処理は最小（effort: low）にして費用を抑える。Haiku 5.5 では temperature は指定しない。
+ * 考える深さは Config.gs の limits.claudeEffort（初期値 medium。Gemini の結果に近づけるため）。Haiku 5.5 では temperature は指定しない。
+ * 考える分も max_tokens に入るので、呼び出し側は余裕を持たせる。
  */
 function buildClaudeRequest_(options) {
-  var outputConfig = { effort: 'low' };
+  var effort = String((APP_CONFIG.limits && APP_CONFIG.limits.claudeEffort) || 'medium');
+  var outputConfig = { effort: ['low', 'medium', 'high'].indexOf(effort) === -1 ? 'medium' : effort };
   if (options.schema) { outputConfig.format = { type: 'json_schema', schema: options.schema }; }
   return {
     url: CLAUDE_ENDPOINT,
@@ -1168,7 +1170,7 @@ function buildClaudeAnalyzeRequest_(options) {
     system: m.system,
     content: content,
     schema: geminiSchemaToJsonSchema_({ type: 'OBJECT', properties: m.properties, required: m.required }),
-    maxTokens: 4096
+    maxTokens: 8192
   });
 }
 
@@ -1179,7 +1181,7 @@ function buildClaudeSummaryRequest_(apiKey, model, text, length) {
     model: model,
     system: summarySystemPrompt_(length),
     content: [{ type: 'text', text: text }],
-    maxTokens: 2048
+    maxTokens: 4096
   });
 }
 
