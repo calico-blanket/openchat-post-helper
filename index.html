@@ -111,13 +111,22 @@
           </div>
 
           <div id="threadContent">
-          <fieldset class="field" aria-describedby="threadModeHelp">
-            <legend>スレッドに貼る原文</legend>
+          <fieldset class="field summary-box" aria-describedby="summaryHelp">
+            <legend>長いときは要約する（任意）</legend>
+            <p class="help" id="summaryHelp">初めは原文を全文そのまま貼ります。長すぎるときだけ、AI が要点を拾って縮めます（前置きが「…の要約です。」に変わります）。</p>
             <div class="radio-group">
-              <label class="choice"><input type="radio" name="threadMode" value="full" checked> 全文</label>
-              <label class="choice"><input type="radio" name="threadMode" value="excerpt"> 抜粋</label>
+              <label class="choice"><input type="radio" name="summaryLength" value="half" checked> 半分程度</label>
+              <label class="choice"><input type="radio" name="summaryLength" value="3lines"> 3行程度</label>
             </div>
-            <p class="help" id="threadModeHelp">前置きの文（「転載です」「抜粋です」）が変わります。抜粋を選んでも、アプリは文を削りません。不要な行は、下の「スレッドの内容を直す」の原文から消してください。</p>
+            <div class="actions">
+              <button type="button" id="summarizeButton" class="button secondary">要約する</button>
+              <button type="button" id="revertSummaryButton" class="button secondary" hidden>原文に戻す</button>
+            </div>
+            <div id="summaryDraftArea" hidden>
+              <label for="fSummaryDraft">要約の下書き（編集できます。スレッドには原文の代わりにこれを使います）</label>
+              <textarea id="fSummaryDraft" rows="6"></textarea>
+              <ul id="summaryWarningList" class="inline-warning-list"></ul>
+            </div>
           </fieldset>
           <div id="emojiNameBox" class="field" hidden>
             <p class="help" id="emojiNameNote"></p>
@@ -130,7 +139,7 @@
           <ol id="threadMessages" class="message-list"></ol>
 
           <details id="threadEditDetails" class="edit-details">
-            <summary>スレッドの内容を直す（前置き・原文・要約・コメント）</summary>
+            <summary>スレッドの内容を直す（前置き・原文・コメント）</summary>
 
             <div class="field">
               <label for="fPrefix">前置き</label>
@@ -141,23 +150,6 @@
               <label for="fOriginal">原文</label>
               <textarea id="fOriginal" rows="8"></textarea>
             </div>
-
-            <fieldset class="field summary-box">
-              <legend>長いときは要約する（任意）</legend>
-              <div class="radio-group">
-                <label class="choice"><input type="radio" name="summaryLength" value="half" checked> 半分程度</label>
-                <label class="choice"><input type="radio" name="summaryLength" value="3lines"> 3行程度</label>
-              </div>
-              <div class="actions">
-                <button type="button" id="summarizeButton" class="button secondary">要約する</button>
-                <button type="button" id="revertSummaryButton" class="button secondary" hidden>原文に戻す</button>
-              </div>
-              <div id="summaryDraftArea" hidden>
-                <label for="fSummaryDraft">要約の下書き（編集できます。スレッドには原文の代わりにこれを使います）</label>
-                <textarea id="fSummaryDraft" rows="6"></textarea>
-                <ul id="summaryWarningList" class="inline-warning-list"></ul>
-              </div>
-            </fieldset>
 
             <div class="field">
               <label for="fMemo">コメント（スレッドの最後に添えます）</label>

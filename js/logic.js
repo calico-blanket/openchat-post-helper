@@ -366,16 +366,24 @@
   // ---- スレッド（詳細） -----------------------------------------
 
   /**
-   * 入力元に応じたスレッドの前置き（要約版なら「以下は要約です。」）。
-   * mode は 'full'（全文、初期値）か 'excerpt'（抜粋）。発信者の有無では全文・抜粋を切り替えない。
+   * 入力元に応じたスレッドの前置き。要約版（isSummary）なら「…の要約です。」の組を使う。
+   * 発信者の有無では書き分けない（名前があれば名前を入れるだけ）。
    */
-  function buildThreadPrefix(config, source, author, isSummary, mode) {
+  function buildThreadPrefix(config, source, author, isSummary) {
     var map = (config && config.threadPrefixes) || {};
-    if (isSummary) { return map.summary || ''; }
+    var values = { author: String(author || '').trim() };
+    if (isSummary) {
+      // 以前の設定（全入力元で共通の1文）は、そのまま使う
+      if (typeof map.summary === 'string') { return map.summary; }
+      if (map.summary && typeof map.summary === 'object') {
+        return fillTemplate(pickTemplate(map.summary, source, author), values);
+      }
+      return '';
+    }
     // 組に分かれていない古い形の設定（フォーク先など）は、そのまま使う
-    var set = map[mode === 'excerpt' ? 'excerpt' : 'full'];
+    var set = map.full;
     if (!set || typeof set !== 'object') { set = map; }
-    return fillTemplate(pickTemplate(set, source, author), { author: String(author || '').trim() });
+    return fillTemplate(pickTemplate(set, source, author), values);
   }
 
   /**
