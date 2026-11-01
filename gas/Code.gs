@@ -752,39 +752,89 @@ function fetchSourceContent_(url) {
 }
 
 /**
- * X の投稿本文を oEmbed で取得する。
- * 長い投稿は約250字で切れて返る（無料で全文を取れる経路は無い）。途中切れなら全文の貼り付けを促す。
+ * X の投稿本文を取得する。
+ * まず oEmbed（X 公式）で取る。長い投稿は約250字で切れて返るので、切れていたときだけ、
+ * 外部の fxtwitter から全文を取り直す（短い投稿の URL は外部に送らない）。それも失敗したら、全文の貼り付けを促す。
  */
 function fetchXPost_(url) {
-  var endpoint = 'https://publish.twitter.com/oembed?omit_script=true&lang=ja&url=' + encodeURIComponent(url);
-  var response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true, followRedirects: true });
-  if (response.getResponseCode() !== 200) {
-    throw new Error('X の oEmbed が HTTP ' + response.getResponseCode() + ' を返しました');
+  var oembedError = '';
+  var parsed = '';
+  var author = '';
+  try {
+    var endpoint = 'https://publish.twitter.com/oembed?omit_script=true&lang=ja&url=' + encodeURIComponent(url);
+    var response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true, followRedirects: true });
+    if (response.getResponseCode() !== 200) {
+      oembedError = 'X の oEmbed が HTTP ' + response.getResponseCode() + ' を返しました';
+    } else {
+      var data = JSON.parse(response.getContentText());
+      parsed = extractXPostText_(String(data.html || ''));
+      author = String(data.author_name || '');
+      if (!parsed) { oembedError = 'X の投稿本文が見つかりませんでした'; }
+    }
+  } catch (err) {
+    oembedError = String((err && err.message) || err);
   }
-  var data = JSON.parse(response.getContentText());
-  var parsed = extractXPostText_(String(data.html || ''));
-  if (!parsed) {
-    throw new Error('X の投稿本文が見つかりませんでした');
+
+  var truncated = parsed ? isTruncatedXText_(parsed) : false;
+  if (!parsed || truncated) {
+    var full = fetchXPostFull_(url);
+    if (full && full.text.length > parsed.length) {
+      return { status: 'ok', resolvedUrl: url, text: full.text, author: full.author || author, pageTitle: '', note: '' };
+    }
   }
-  var note = isTruncatedXText_(parsed)
+  if (!parsed) { throw new Error(oembedError || 'X の投稿本文が見つかりませんでした'); }
+  var note = truncated
     ? 'X の長い投稿は途中までしか取得できません。X で「さらに表示」を開いて本文をすべてコピーし、本文欄に貼って、もう一度「文章を整える」を押してください'
     : '';
   return {
     status: 'ok',
     resolvedUrl: url,
     text: parsed,
-    author: String(data.author_name || ''),
+    author: author,
     pageTitle: '',
     note: note
   };
 }
 
 /**
+ * 長い X の投稿の全文を、外部の fxtwitter（api.fxtwitter.com）から取る。
+ * 渡すのは公開されている投稿の URL の ID だけ。失敗・形が違うときは null（呼び出し側が従来の案内に戻る）。
+ */
+function fetchXPostFull_(url) {
+  var ref = parseXStatusUrl_(url);
+  if (!ref) { return null; }
+  try {
+    var response = UrlFetchApp.fetch('https://api.fxtwitter.com/' + ref.user + '/status/' + ref.id, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: { 'User-Agent': DEFAULT_USER_AGENT }
+    });
+    if (response.getResponseCode() !== 200) { return null; }
+    var tweet = (JSON.parse(response.getContentText()) || {}).tweet;
+    var text = tweet && typeof tweet.text === 'string' ? tweet.text.trim() : '';
+    if (!text) { return null; }
+    return { text: text, author: String((tweet.author && tweet.author.name) || '') };
+  } catch (err) {
+    return null;
+  }
+}
+
+/** X の投稿の URL から、ユーザー名（なければ i）と投稿の ID を取り出す純粋関数。合わなければ null */
+function parseXStatusUrl_(url) {
+  var m = String(url || '').match(/^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:([A-Za-z0-9_]{1,15})|i(?:\/web)?)\/status\/(\d{1,25})/i);
+  if (!m) { return null; }
+  return { user: m[1] || 'i', id: m[2] };
+}
+
+/**
  * oEmbed の本文が途中で切れているかを判定する純粋関数。
  * 切れた本文は「…」で終わるか、「…」のあとに画像や URL のリンク（pic.twitter.com/… や https://t.co/…）だけが続く。
+ * 切れた URL（https://t.co/abc…）で終わる場合も、途中切れとみなす。
  */
 function isTruncatedXText_(text) {
-  var tail = String(text || '').replace(/(?:\s*(?:https?:\/\/\S+|pic\.twitter\.com\/\S+))+\s*$/, '');
+  var withoutPics = String(text || '').replace(/(?:\s*pic\.twitter\.com\/\S+)+\s*$/, '');
+  if (/…\s*$/.test(withoutPics)) { return true; }
+  var tail = withoutPics.replace(/(?:\s*https?:\/\/\S+)+\s*$/, '');
   return /…\s*$/.test(tail);
 }
 

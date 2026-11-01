@@ -1336,6 +1336,72 @@ test('isTruncatedXText_: 「…」で終わる・「…」のあとにリンク�
   assert.strictEqual(t('短い投稿です。 pic.twitter.com/abc'), false);
   assert.strictEqual(t('途中に…がある投稿です。'), false);
   assert.strictEqual(t(''), false);
+  // 切れた URL（https://t.co/abc…）で終わる本文（2026-11-01 に見つかった漏れ）
+  assert.strictEqual(t('公開しました！\n\n🔗https://t.co/nZcZLzcR4Q… pic.twitter.com/To94k9HJc6'), true);
+  assert.strictEqual(t('公開しました！ https://t.co/nZcZLzcR4Q'), false);
+});
+
+test('parseXStatusUrl_: X の投稿の URL からユーザー名と ID を取り出す', () => {
+  const { context } = load();
+  const p = (u) => JSON.parse(JSON.stringify(context.parseXStatusUrl_(u)));
+  assert.deepStrictEqual(p('https://x.com/InaharaM_mirai/status/2116325008939368476?a=imSTzDvwkebh6qCkQvs'), { user: 'InaharaM_mirai', id: '2116325008939368476' });
+  assert.deepStrictEqual(p('https://twitter.com/a/status/12'), { user: 'a', id: '12' });
+  assert.deepStrictEqual(p('https://mobile.twitter.com/a/status/12'), { user: 'a', id: '12' });
+  assert.deepStrictEqual(p('https://x.com/i/status/12'), { user: 'i', id: '12' });
+  assert.deepStrictEqual(p('https://x.com/i/web/status/12'), { user: 'i', id: '12' });
+  assert.strictEqual(context.parseXStatusUrl_('https://x.com/a'), null);
+  assert.strictEqual(context.parseXStatusUrl_('https://example.com/a/status/12'), null);
+});
+
+test('analyze: X の長文は、oEmbed が途中で切れていたら fxtwitter から全文を取り、警告を出さない', () => {
+  const full = '【自分が払った税金、どこへ行っているか知っていますか？】\n\n公開しました！\n\n🔗https://rs-vis.team-mir.ai/\n\n国の予算データは公開されているものの、資料が膨大でした。';
+  const calls = [];
+  const env = load({
+    fetch: (url) => {
+      calls.push(url);
+      if (url.startsWith('https://publish.twitter.com/')) {
+        return res(200, { author_name: '稲原むねよし', html: '<blockquote><p lang="ja">【自分が払った税金】<br><br>公開しました！<br><br>🔗<a href="https://t.co/nZcZLzcR4Q">https://t.co/nZcZLzcR4Q</a>… <a href="https://t.co/To94k9HJc6">pic.twitter.com/To94k9HJc6</a></p></blockquote>' });
+      }
+      if (url.startsWith('https://api.fxtwitter.com/')) {
+        return res(200, { code: 200, tweet: { text: full, author: { name: '稲原むねよし| チームみらい' } } });
+      }
+      if (url.startsWith('https://x.com/')) { return res(200, ''); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  const r = post(env, { action: 'analyze', url: 'https://x.com/InaharaM_mirai/status/2116325008939368476?a=abc' });
+  assert.strictEqual(r.originalText, full);
+  assert.strictEqual(r.author, '稲原むねよし| チームみらい');
+  assert.ok(!r.warnings.some((w) => /途中までしか取得できません/.test(w)), JSON.stringify(r.warnings));
+  assert.ok(calls.includes('https://api.fxtwitter.com/InaharaM_mirai/status/2116325008939368476'), JSON.stringify(calls));
+});
+
+test('analyze: X の短い投稿は、fxtwitter に問い合わせない', () => {
+  const calls = [];
+  const env = load({
+    fetch: (url) => {
+      calls.push(url);
+      if (url.startsWith('https://publish.twitter.com/')) { return res(200, { author_name: 'A', html: '<p>明日は街頭演説です。</p>' }); }
+      if (url.startsWith('https://x.com/')) { return res(200, ''); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  post(env, { action: 'analyze', url: 'https://x.com/a/status/5' });
+  assert.ok(!calls.some((u) => u.startsWith('https://api.fxtwitter.com/')), JSON.stringify(calls));
+});
+
+test('analyze: oEmbed が切れていて fxtwitter も失敗したら、従来どおり全文の貼り付けを促す', () => {
+  const env = load({
+    fetch: (url) => {
+      if (url.startsWith('https://publish.twitter.com/')) { return res(200, { author_name: 'A', html: '<p>長い投稿の途中まで…</p>' }); }
+      if (url.startsWith('https://api.fxtwitter.com/')) { return res(500, { code: 500 }); }
+      if (url.startsWith('https://x.com/')) { return res(200, ''); }
+      return geminiRes(geminiAnalyze());
+    }
+  });
+  const r = post(env, { action: 'analyze', url: 'https://x.com/a/status/6' });
+  assert.strictEqual(r.originalText, '長い投稿の途中まで…');
+  assert.ok(r.warnings.some((w) => /途中までしか取得できません/.test(w)), JSON.stringify(r.warnings));
 });
 
 test('analyze: X の長文（「…」＋画像リンクで終わる）では、全文の貼り付けを促す警告を出す', () => {
