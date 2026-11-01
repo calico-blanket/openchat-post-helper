@@ -197,33 +197,23 @@ test('buildTalkBody: 記事型は日時行を出さず、X は投稿者名入り
 
 // ---- スレッド: 前置き＋原文、原文を一字も変えない -------------------
 
-test('buildThreadPrefix: 入力元に応じた前置き、要約版は「以下は要約です。」', () => {
-  // 初期値（mode 省略）は全文
+test('buildThreadPrefix: 入力元に応じた前置き。全文では「抜粋」「要約」と書かず、要約版は「…の要約です。」', () => {
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの転載です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'x', '山田', false), '↑山田さんの投稿です。');
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', true), '以下は要約です。');
-});
-
-test('buildThreadPrefix: 全文と抜粋で書き分け、「（全文）」は付けない', () => {
-  const p = (source, author, mode) => L.buildThreadPrefix(CONFIG, source, author, false, mode);
-  assert.strictEqual(p('slack', '', 'full'), '以下はSlackからの転載です。');
-  assert.strictEqual(p('slack', '', 'excerpt'), '以下はSlackからの抜粋です。');
-  assert.strictEqual(p('slack', '運営アカウント', 'excerpt'), '以下はSlackからの抜粋です。発信者は運営アカウントです。');
-  assert.strictEqual(p('line', '', 'full'), '以下はLINE公式からの転載です。');
-  assert.strictEqual(p('line', '', 'excerpt'), '以下はLINE公式からの抜粋です。');
-  assert.strictEqual(p('note', '山田', 'full'), '以下は山田さんのnote記事からの転載です。');
-  assert.strictEqual(p('note', '山田', 'excerpt'), '以下は山田さんのnote記事からの抜粋です。');
-  assert.strictEqual(p('x', '', 'excerpt'), '↑Xの投稿からの抜粋です。');
-  // 要約版は全文・抜粋に関係なく「以下は要約です。」
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', true, 'excerpt'), '以下は要約です。');
-  // すべての入力元・発信者の有無・全文/抜粋で、{author} が残らず、「（全文）」も付かない
-  CONFIG.sources.forEach((s) => ['', '山田'].forEach((a) => ['full', 'excerpt'].forEach((m) => {
-    const text = p(s.key, a, m);
-    assert.ok(text && !/\{author\}|（全文）/.test(text), `${s.key}/${a}/${m}: ${text}`);
-    assert.strictEqual(/抜粋/.test(text), m === 'excerpt', `${s.key}/${a}/${m}: ${text}`);
-  })));
-  // 組に分かれていない古い形の設定（フォーク先）もそのまま使える
-  assert.strictEqual(L.buildThreadPrefix({ threadPrefixes: { slack: '旧: Slack', other: '旧' } }, 'slack', '', false, 'excerpt'), '旧: Slack');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'x', '山田', true), '↑山田さんの投稿の要約です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'x', '', true), '↑Xの投稿の要約です。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', true), '以下はSlackからの転載の要約です。発信者は運営アカウントです。');
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'note', '山田', true), '以下は山田さんのnote記事の要約です。');
+  // すべての入力元・発信者の有無で、{author} が残らず、全文は「抜粋」「要約」を含まず、要約版は「要約」を含む
+  CONFIG.sources.forEach((s) => ['', '山田'].forEach((a) => {
+    const full = L.buildThreadPrefix(CONFIG, s.key, a, false);
+    const summary = L.buildThreadPrefix(CONFIG, s.key, a, true);
+    assert.ok(full && !/{author}|（全文）|抜粋|要約/.test(full), `${s.key}/${a}: ${full}`);
+    assert.ok(summary && !/{author}/.test(summary) && /要約です。/.test(summary), `${s.key}/${a}: ${summary}`);
+  }));
+  // 以前の設定（要約が全入力元共通の1文・組に分かれていない形）もそのまま使える
+  assert.strictEqual(L.buildThreadPrefix({ threadPrefixes: { full: CONFIG.threadPrefixes.full, summary: '以下は要約です。' } }, 'slack', '', true), '以下は要約です。');
+  assert.strictEqual(L.buildThreadPrefix({ threadPrefixes: { slack: '旧: Slack', other: '旧' } }, 'slack', '', false), '旧: Slack');
 });
 
 test('normalizeUrl: 日本語の文ごとコピーしたとき、全角の句読点・かっこ以降を URL に含めない', () => {
@@ -415,12 +405,12 @@ test('stripTitleBrackets: 外側の【】・閉じ側が切れた【を外し、
   assert.strictEqual(L.stripTitleBrackets(''), '');
 });
 
-test('Slack の前置き: 名前があれば「発信者は○○です。」を足すだけで、全文・抜粋は切り替わらない', () => {
+test('Slack の前置き: 名前があれば「発信者は○○です。」を足すだけ', () => {
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', false), '以下はSlackからの転載です。発信者は運営アカウントです。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '', false), '以下はSlackからの転載です。');
   assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '  ', false), '以下はSlackからの転載です。');
-  // 要約版は名前に関係なく「以下は要約です。」
-  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', true), '以下は要約です。');
+  // 要約版も、名前があれば同じ形で足す
+  assert.strictEqual(L.buildThreadPrefix(CONFIG, 'slack', '運営アカウント', true), '以下はSlackからの転載の要約です。発信者は運営アカウントです。');
 });
 
 test('Slack のトーク本体の出典行は、名前があっても変えない', () => {

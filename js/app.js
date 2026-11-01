@@ -656,8 +656,6 @@
     $('fSummaryDraft').value = '';
     $('summaryDraftArea').hidden = true;
     $('revertSummaryButton').hidden = true;
-    // スレッドの原文は、初期値を「全文」にする
-    document.querySelector('input[name="threadMode"][value="full"]').checked = true;
     $('fPrefix').value = autoPrefix();
     state.useThreadEdited = false;
     $('fUseThread').checked = L.defaultUseThread(config(), post.source, post.url);
@@ -815,14 +813,8 @@
     };
   }
 
-  /** スレッドに貼る原文の選択（'full' 全文 / 'excerpt' 抜粋） */
-  function threadMode() {
-    var checked = document.querySelector('input[name="threadMode"]:checked');
-    return checked ? checked.value : 'full';
-  }
-
   function autoPrefix() {
-    return L.buildThreadPrefix(config(), $('fSource').value, $('fAuthor').value, state.summaryMode, threadMode());
+    return L.buildThreadPrefix(config(), $('fSource').value, $('fAuthor').value, state.summaryMode);
   }
 
   function todayIso() { return L.todayIsoInTokyo(new Date()); }
@@ -1468,11 +1460,6 @@
       }
       if (event.target.id === 'fSource' || event.target.id === 'fAuthor') {
         if (!state.prefixEdited) { $('fPrefix').value = autoPrefix(); }
-      }
-      // 全文・抜粋をはっきり選んだときは、手で直した前置きより選択を優先する
-      if (event.target.name === 'threadMode') {
-        state.prefixEdited = false;
-        $('fPrefix').value = autoPrefix();
       }
       refreshOutputs();
     });

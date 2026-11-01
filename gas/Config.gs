@@ -100,7 +100,7 @@ var APP_CONFIG = {
   },
 
   // スレッド（詳細）の前置き（入力元に応じて自動で付ける。画面で編集できる）
-  //   full: 原文を全文貼るとき（初期値）／excerpt: 利用者が原文を抜粋したとき
+  //   full: 原文を全文貼るとき（初期値）／summary: 「要約する」で要約版にしたとき
   //   「キー_noAuthor」は発信者の名前が空のときに使う
   threadPrefixes: {
     full: {
@@ -120,25 +120,24 @@ var APP_CONFIG = {
       flyer: '以下はチラシ画像から読み取った内容です。',
       other: '以下は原文です。'
     },
-    excerpt: {
-      slack: '以下はSlackからの抜粋です。発信者は{author}です。',
-      slack_noAuthor: '以下はSlackからの抜粋です。',
-      x: '↑{author}さんの投稿からの抜粋です。',
-      x_noAuthor: '↑Xの投稿からの抜粋です。',
-      instagram: '↑{author}さんのInstagramの投稿からの抜粋です。',
-      instagram_noAuthor: '↑Instagramの投稿からの抜粋です。',
-      threads: '↑{author}さんのThreadsの投稿からの抜粋です。',
-      threads_noAuthor: '↑Threadsの投稿からの抜粋です。',
-      line: '以下はLINE公式からの抜粋です。',
-      note: '以下は{author}さんのnote記事からの抜粋です。',
-      note_noAuthor: '以下はnote記事からの抜粋です。',
-      legislator: '以下は{author}議員の活動告知からの抜粋です。',
-      legislator_noAuthor: '以下は議員の活動告知からの抜粋です。',
-      flyer: '以下はチラシ画像から読み取った内容の抜粋です。',
-      other: '以下は原文からの抜粋です。'
-    },
-    // 要約ボタンで要約版に切り替えたときの前置き
-    summary: '以下は要約です。'
+    // 「要約する」で要約版に切り替えたときの前置き
+    summary: {
+      slack: '以下はSlackからの転載の要約です。発信者は{author}です。',
+      slack_noAuthor: '以下はSlackからの転載の要約です。',
+      x: '↑{author}さんの投稿の要約です。',
+      x_noAuthor: '↑Xの投稿の要約です。',
+      instagram: '↑{author}さんのInstagramの投稿の要約です。',
+      instagram_noAuthor: '↑Instagramの投稿の要約です。',
+      threads: '↑{author}さんのThreadsの投稿の要約です。',
+      threads_noAuthor: '↑Threadsの投稿の要約です。',
+      line: '以下はLINE公式からの転載の要約です。',
+      note: '以下は{author}さんのnote記事の要約です。',
+      note_noAuthor: '以下はnote記事の要約です。',
+      legislator: '以下は{author}議員の活動告知の要約です。',
+      legislator_noAuthor: '以下は議員の活動告知の要約です。',
+      flyer: '以下はチラシ画像から読み取った内容の要約です。',
+      other: '以下は原文の要約です。'
+    }
   },
 
   // メモ欄のコメントをスレッドに添えるときの書式
