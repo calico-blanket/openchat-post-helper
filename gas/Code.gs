@@ -11,7 +11,7 @@
 //   スクリプトプロパティ（秘密情報はここだけに置く）:
 //     SHARED_TOKEN      管理者の合言葉（必須。未設定なら全 API を拒否する。管理者だけが知る）
 //     USERS_JSON        入力する人の一覧（画面の「利用者」で管理。合言葉そのものは持たず、元に戻せない形にした値だけを持つ）
-//     INVITES_JSON      まだ使われていない招待（1回だけ・7日間。招待の印も、元に戻せない形にした値だけを持つ）
+//     INVITES_JSON      まだ使い切っていない招待（同じ人の端末として2台まで・7日間。招待の印も、元に戻せない形にした値だけを持つ）
 //     GEMINI_API_KEY    Gemini の API キー（必須）
 //     GEMINI_MODEL      モデル名（省略時 gemini-3.1-flash-lite）
 //     TYPESAFE_API_KEY  Jev の API キー（任意。設定時は種別・カテゴリ・タグを Jev で判定）
@@ -42,9 +42,10 @@ var KINDS_PROPERTY = 'KINDS_JSON';
 var MAX_CUSTOM_KINDS = 20;
 var USERS_PROPERTY = 'USERS_JSON';
 var MAX_USERS = 30;
-// 招待（名前を入れる前の、1回だけ使える招待リンク）。使われないまま INVITE_DAYS 日たつと無効
+// 招待（名前を入れる前の招待リンク。同じ人の端末として INVITE_MAX_DEVICES 台まで使える）。INVITE_DAYS 日たつと無効
 var INVITES_PROPERTY = 'INVITES_JSON';
 var INVITE_DAYS = 7;
+var INVITE_MAX_DEVICES = 2;
 var MAX_PENDING_INVITES = 30;
 var INVALID_INVITE_MESSAGE = 'この招待リンクは使えません（使用済み・期限切れ・取り消し済みのどれかです）。招待した人に、新しいリンクを作ってもらってください';
 // 管理者だけが呼べる action（入力する人は呼べない）
@@ -110,7 +111,7 @@ function doGet(e) {
  * PWA からの POST を受け取る。本文は JSON（Content-Type は text/plain で届く）。
  * すべての action で、最初に合言葉を照合する。
  * 例外は claimInvite（招待リンクからの名前の登録）だけ。まだ合言葉を持っていないので、
- * 合言葉の代わりに、1回だけ使える招待の印（推測できない64桁）で照合する。
+ * 合言葉の代わりに、2台まで使える招待の印（推測できない64桁）で照合する。
  */
 function doPost(e) {
   try {
@@ -184,7 +185,13 @@ function checkToken_(token) {
     var hash = hashToken_(token);
     var users = getUsers_();
     for (var i = 0; i < users.length; i++) {
-      if (safeEquals_(users[i].hash, hash)) {
+      var hashes = userHashes_(users[i]);
+      var matched = false;
+      // 合言葉の数にかかわらず、すべてを比べる（どれに一致したかで処理時間が変わらないように）
+      for (var j = 0; j < hashes.length; j++) {
+        if (safeEquals_(hashes[j], hash)) { matched = true; }
+      }
+      if (matched) {
         if (users[i].disabled) {
           throw new Error('この合言葉は、いまは使えません。管理者に連絡してください');
         }
@@ -278,13 +285,26 @@ function getInvites_() {
   });
 }
 
-/** 画面に返す招待の形（招待の印の値は含めない） */
-function publicInvite_(v) {
+/** 画面に返す招待の形（招待の印の値は含めない）。登録済みの端末の数と、1台目の名前を添える */
+function publicInvite_(v, userNames) {
   return {
     id: v.id,
     createdAt: v.createdAt || '',
-    expiresAt: Utilities.formatDate(new Date(v.expiresAt), TIME_ZONE, 'yyyy-MM-dd HH:mm')
+    expiresAt: Utilities.formatDate(new Date(v.expiresAt), TIME_ZONE, 'yyyy-MM-dd HH:mm'),
+    uses: v.uses || 0,
+    maxUses: v.maxUses || 1,
+    userName: v.userId ? ((userNames || userNameMap_())[v.userId] || '') : ''
   };
+}
+
+function publicInvites_(invites) {
+  var names = userNameMap_();
+  return invites.map(function (v) { return publicInvite_(v, names); });
+}
+
+/** 利用者の合言葉（元に戻せない値）すべて。1台目の hash と、招待の2台目以降の extraHashes */
+function userHashes_(u) {
+  return [u.hash].concat(Array.isArray(u.extraHashes) ? u.extraHashes.filter(function (h) { return typeof h === 'string' && h; }) : []);
 }
 
 /** 推測できない64桁の16進（合言葉・招待の印に使う） */
@@ -293,7 +313,7 @@ function newSecret_() {
 }
 
 function handleListUsers_() {
-  return { ok: true, users: getUsers_().map(publicUser_), invites: getInvites_().map(publicInvite_) };
+  return { ok: true, users: getUsers_().map(publicUser_), invites: publicInvites_(getInvites_()) };
 }
 
 /**
@@ -322,7 +342,8 @@ function createUser_(rawName) {
 
 /**
  * 招待を作る（管理者）。招待の印はこの応答で1回だけ返し、保存するのは元に戻せない値だけ。
- * 招待は1回だけ使え、INVITE_DAYS 日で無効になる。期限切れの招待は、ここで一覧から落とす。
+ * 招待は INVITE_MAX_DEVICES 台まで（同じ人の端末として）使え、INVITE_DAYS 日で無効になる。
+ * 期限切れの招待は、ここで一覧から落とす。
  */
 function handleCreateInvite_() {
   var invites = getInvites_();
@@ -334,11 +355,13 @@ function handleCreateInvite_() {
     id: Utilities.getUuid(),
     hash: hashToken_(code),
     createdAt: Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd HH:mm:ss'),
-    expiresAt: Date.now() + INVITE_DAYS * 24 * 60 * 60 * 1000
+    expiresAt: Date.now() + INVITE_DAYS * 24 * 60 * 60 * 1000,
+    maxUses: INVITE_MAX_DEVICES,
+    uses: 0
   };
   invites.push(invite);
   writeJsonList_(INVITES_PROPERTY, invites);
-  return { ok: true, code: code, invite: publicInvite_(invite), invites: invites.map(publicInvite_) };
+  return { ok: true, code: code, invite: publicInvite_(invite), invites: publicInvites_(invites) };
 }
 
 /** まだ使われていない招待を取り消す（管理者） */
@@ -348,12 +371,14 @@ function handleCancelInvite_(body) {
   var rest = invites.filter(function (v) { return v.id !== id; });
   if (rest.length === invites.length) { throw new Error('その招待は見つかりません（使用済み・期限切れの可能性があります）'); }
   writeJsonList_(INVITES_PROPERTY, rest);
-  return { ok: true, invites: rest.map(publicInvite_) };
+  return { ok: true, invites: publicInvites_(rest) };
 }
 
 /**
  * 招待リンクを受け取った人が、名前を入れて登録する（合言葉なしで呼べる唯一の action）。
- * 招待の印が有効なら、その人を作って合言葉を返し、招待は使用済みにする（一覧から消す）。
+ * 1台目: 招待の印が有効なら、その人を作って合言葉を返す。招待は残り（あと INVITE_MAX_DEVICES - 1 台）。
+ * 2台目以降: 同じ招待で、1台目と同じ名前を入れると、同じ人の合言葉をもう1つ作って返す
+ *   （同じ人なので、自分が保存した記録をどの端末からも編集できる）。上限の台数に達した招待は一覧から消す。
  * 名前が正しくないときは、招待を残したまま Error を投げる（名前を直して、同じリンクでやり直せる）。
  * 返すのは、その人の合言葉と名前だけ（ほかの人・記録・設定の情報は返さない）。
  */
@@ -366,9 +391,36 @@ function handleClaimInvite_(body) {
   var invites = getInvites_();
   var invite = invites.filter(function (v) { return safeEquals_(v.hash, hash); })[0];
   if (!invite) { throw new Error(INVALID_INVITE_MESSAGE); }
-  var created = createUser_(body.name);
-  writeJsonList_(INVITES_PROPERTY, invites.filter(function (v) { return v.id !== invite.id; }));
-  return { ok: true, token: created.token, name: created.user.name };
+  var rest = invites.filter(function (v) { return v.id !== invite.id; });
+  var maxUses = invite.maxUses || 1;
+  var token;
+  var name;
+  if (invite.userId) {
+    var users = getUsers_();
+    var owner = users.filter(function (u) { return u.id === invite.userId; })[0];
+    if (!owner || owner.disabled) {
+      // 1台目の人が削除された・止められた招待は、使えなくする
+      writeJsonList_(INVITES_PROPERTY, rest);
+      throw new Error(INVALID_INVITE_MESSAGE);
+    }
+    if (String(body.name || '').trim() !== owner.name) {
+      throw new Error('この招待リンクは、すでに1台目が登録されています。2台目は、1台目で登録したのと同じ名前を入れてください');
+    }
+    token = newSecret_();
+    owner.extraHashes = (Array.isArray(owner.extraHashes) ? owner.extraHashes : []).concat([hashToken_(token)]);
+    writeJsonList_(USERS_PROPERTY, users);
+    name = owner.name;
+    invite.uses = (invite.uses || 1) + 1;
+  } else {
+    var created = createUser_(body.name);
+    token = created.token;
+    name = created.user.name;
+    invite.userId = created.user.id;
+    invite.uses = 1;
+  }
+  if (invite.uses < maxUses) { rest.push(invite); }
+  writeJsonList_(INVITES_PROPERTY, rest);
+  return { ok: true, token: token, name: name };
 }
 
 /** 入力する人を止める・再開する（記録はそのまま残る） */
@@ -389,6 +441,8 @@ function handleRemoveUser_(body) {
   var rest = users.filter(function (u) { return u.id !== id; });
   if (rest.length === users.length) { throw new Error('その人は見つかりません'); }
   writeJsonList_(USERS_PROPERTY, rest);
+  // その人の2台目用に残っている招待も使えなくする
+  writeJsonList_(INVITES_PROPERTY, getInvites_().filter(function (v) { return v.userId !== id; }));
   return { ok: true, users: rest.map(publicUser_) };
 }
 

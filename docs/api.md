@@ -38,9 +38,9 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 | `syncPublicSheet` | なし | `count`（公開用スプレッドシートの「記録一覧」タブを作り直した件数）。未設定なら `skipped: true` |
 | `reorderAuthors` | `authors: []` | `authors` |
 | `listUsers` | なし | `users: [{ id, name, createdAt, disabled }]`（管理者だけ。合言葉・ハッシュは返さない） |
-| `createInvite` | なし | `code`（招待の印。**この応答だけ**）`invite` `invites`（管理者だけ。1回だけ・7日間有効。使われていない招待は30件まで） |
+| `createInvite` | なし | `code`（招待の印。**この応答だけ**）`invite` `invites`（管理者だけ。同じ人の端末として2台まで・7日間有効。使い切っていない招待は30件まで。`invites` の各要素に `uses` `maxUses` `userName`） |
 | `cancelInvite` | `id` | `invites`（まだ使われていない招待を取り消す。管理者だけ） |
-| `claimInvite` | `code` `name`（30文字まで・重複不可・30人まで）。**`token` は不要** | `token`（その人の合言葉）`name`。招待は使用済みになる。名前が正しくないときは招待を残したまま失敗する。使用済み・期限切れ・取り消し済み・知らない印は「この招待リンクは使えません」。`SHARED_TOKEN` 未設定なら拒否 |
+| `claimInvite` | `code` `name`（30文字まで・重複不可・30人まで）。**`token` は不要** | `token`（その人の合言葉）`name`。1台目は新しい人を作る。2台目は1台目と**同じ名前**を入れると、同じ人の合言葉をもう1つ作る（名前が違うと招待を残したまま失敗）。2台使うと招待は使用済みになる。名前が正しくないときは招待を残したまま失敗する。使用済み・期限切れ・取り消し済み・知らない印は「この招待リンクは使えません」。`SHARED_TOKEN` 未設定なら拒否 |
 | `setUserDisabled` | `id` `disabled: boolean` | `users`（止めた人の記録は残る。管理者だけ） |
 | `removeUser` | `id` | `users`（その人が保存した記録は残り、管理者だけが編集・削除できる。管理者だけ） |
 
