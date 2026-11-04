@@ -546,6 +546,39 @@ test('meetingUrlWarning: Zoom・Meet・Teams などの会議 URL があれば警
   assert.strictEqual(L.meetingUrlWarning([]), '');
 });
 
+test('findAbbreviatedUrls: Slack のスマホの共有で省略された URL（実際の文）を見つける', () => {
+  // 利用者の実際の共有文（2026-11-04）。https:// も消えている
+  const shared = [
+    '▼録画・関連資料はこちら',
+    ' 説明スライド',
+    'drive.google.com/file/d/…/view?usp=sharing',
+    ' ガイダンス②の録画',
+    'us06web.zoom.us/rec/share/eqZ1in6tW-PR…',
+    ' パスコード：.0g?1Fh+',
+    ' AIインタビューの利用マニュアル',
+    'drive.google.com/file/d/…/view?usp=sharing',
+    '① アカウントを申請する',
+    'forms.gle/…',
+    'docs.google.com/forms/…/viewform?usp=header'
+  ].join('\n');
+  assert.deepStrictEqual(L.findAbbreviatedUrls(shared), [
+    'drive.google.com/file/d/…/view?usp=sharing',
+    'us06web.zoom.us/rec/share/eqZ1in6tW-PR…',
+    'forms.gle/…',
+    'docs.google.com/forms/…/viewform?usp=header'
+  ], '同じ表記は1件にまとめる');
+  assert.deepStrictEqual(L.findAbbreviatedUrls('https://forms.gle/…'), ['forms.gle/…'], 'https:// があっても見つける');
+});
+
+test('findAbbreviatedUrls: 完全な URL・ふつうの「…」・空の入力は拾わない', () => {
+  // PC のコピーで取れる完全な文
+  assert.deepStrictEqual(L.findAbbreviatedUrls('https://drive.google.com/file/d/1fCYBsU4q/view?usp=sharing\nhttps://forms.gle/NS1vCYY2GY7W8cYK6'), []);
+  assert.deepStrictEqual(L.findAbbreviatedUrls('詳しくは後ほど…お知らせします。21:20…開始'), []);
+  assert.deepStrictEqual(L.findAbbreviatedUrls('例: example.com の話…（続く）'), [], 'スラッシュが無ければ URL ではない');
+  assert.deepStrictEqual(L.findAbbreviatedUrls(''), []);
+  assert.deepStrictEqual(L.findAbbreviatedUrls(null), []);
+});
+
 // ---- 記録の一覧（buildArchiveView） -----------------------------------
 
 const ARCHIVE_ITEMS = [

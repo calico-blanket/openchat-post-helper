@@ -934,7 +934,15 @@
       pre.textContent = m.text;
       var button = el('button', {
         type: 'button', className: 'button secondary', text: label + 'をコピー',
-        onClick: function () { copyText(m.text, label, button); }
+        onClick: function () {
+          // スマホの共有で省略された URL（drive.google.com/…）は、そのまま貼ると開けない。コピーの前に確かめる
+          var abbreviated = L.findAbbreviatedUrls(m.text);
+          if (abbreviated.length && !window.confirm(abbreviatedUrlConfirmText(abbreviated))) {
+            announce('コピーをやめました。原文の URL を直してください');
+            return;
+          }
+          copyText(m.text, label, button);
+        }
       });
       list.appendChild(el('li', {}, [
         el('h3', { id: headingId, className: 'message-meta', text: label + '（' + m.text.length + ' 文字）' }),
@@ -945,6 +953,12 @@
     if (!messages.length) {
       list.appendChild(el('li', { text: '原文がありません。原文欄に本文を入れてください。' }));
     }
+  }
+
+  function abbreviatedUrlConfirmText(urls) {
+    return 'このメッセージには、「…」で省略された URL が ' + urls.length + ' 件あります（' + urls[0] + (urls.length > 1 ? ' など' : '') + '）。' +
+      'このままコピーすると、省略された形で貼られ、リンクとして開けません。\n\n' +
+      'PC の Slack でコピーし直すか、原文の欄で URL を直せます。このままコピーしますか？';
   }
 
   /** クリップボードにコピーする（使えない環境では選択してコピーする方式に切り替える） */
