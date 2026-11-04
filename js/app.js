@@ -274,6 +274,7 @@
     }
     invites.forEach(function (v) {
       var label = v.createdAt.slice(0, 16) + ' に作成（' + v.expiresAt + ' まで）';
+      if (v.userName) { label += '。「' + v.userName + '」さんの1台目は登録済み（あと' + (v.maxUses - v.uses) + '台）'; }
       list.appendChild(el('li', {}, [
         el('span', { className: 'name', text: label }),
         el('button', {
@@ -318,7 +319,7 @@
     });
   }
 
-  // 招待リンクから開いて、まだ名前を登録していない招待（1回だけ・7日間。登録できたら消す）
+  // 招待リンクから開いて、まだ名前を登録していない招待（同じ人の端末として2台まで・7日間。登録できたら消す）
   var PENDING_INVITE_KEY = 'ocph.pendingInvite';
 
   function pendingInvite() {
@@ -386,7 +387,7 @@
   }
 
   function cancelClaim() {
-    if (!window.confirm('名前の登録をやめます。この招待リンクは、もう一度開けば使えます（7日以内・まだ誰も使っていなければ）。よろしいですか？')) { return; }
+    if (!window.confirm('名前の登録をやめます。この招待リンクは、もう一度開けば使えます（7日以内・まだ2台とも使っていなければ）。よろしいですか？')) { return; }
     writeStorage(PENDING_INVITE_KEY, null);
     showClaimBox();
     announce('名前の登録をやめました');

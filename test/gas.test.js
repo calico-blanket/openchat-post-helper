@@ -2236,6 +2236,8 @@ function addUser(env, name) {
   assert.strictEqual(invite.ok, true, JSON.stringify(invite));
   const claimed = claim(env, invite.code, name);
   assert.strictEqual(claimed.ok, true, JSON.stringify(claimed));
+  // 2台目用に残った招待は取り消す（1人ぶんの登録だけを作る補助なので）
+  post(env, { action: 'cancelInvite', id: invite.invite.id });
   const users = post(env, { action: 'listUsers' }).users;
   return { token: claimed.token, user: users.find((u) => u.name === name), users };
 }
@@ -2254,7 +2256,62 @@ test('招待: 作ると招待の印が1回だけ返り、GAS には元に戻せ�
   assert.ok(!JSON.stringify(listed).includes('hash'));
 });
 
-test('招待: 名前を入れると、その人の合言葉が返り、招待は使用済みになる（2回目は使えない）', () => {
+test('招待: 同じリンクで、1台目と同じ名前なら2台目も登録でき（同じ人）、3台目は使えない', () => {
+  const env = load();
+  env.context.Utilities.getUuid = () => require('node:crypto').randomUUID();
+  const invite = post(env, { action: 'createInvite' });
+  const first = claim(env, invite.code, '花子');
+  assert.strictEqual(first.ok, true, JSON.stringify(first));
+  // 1台目のあとも招待は残り、1台目の名前とあと何台かが一覧に出る
+  const listed = post(env, { action: 'listUsers' });
+  assert.strictEqual(listed.invites.length, 1);
+  assert.strictEqual(listed.invites[0].userName, '花子');
+  assert.strictEqual(listed.invites[0].uses, 1);
+  assert.strictEqual(listed.invites[0].maxUses, 2);
+  // 違う名前では2台目にならず、招待は残る
+  assert.match(claim(env, invite.code, '太郎').error, /同じ名前/);
+  assert.deepStrictEqual(post(env, { action: 'listUsers' }).users.map((u) => u.name), ['花子']);
+  // 同じ名前なら同じ人の合言葉がもう1つ作られる
+  const second = claim(env, invite.code, ' 花子 ');
+  assert.strictEqual(second.ok, true, JSON.stringify(second));
+  assert.notStrictEqual(second.token, first.token);
+  assert.ok(!env.props.USERS_JSON.includes(second.token), '合言葉そのものを保存してはいけない');
+  // 2つの合言葉とも使え、同じ人として記録を直せる
+  assert.strictEqual(post(env, { action: 'bootstrap' }, first.token).userName, '花子');
+  assert.strictEqual(post(env, { action: 'bootstrap' }, second.token).userName, '花子');
+  const after = post(env, { action: 'listUsers' });
+  assert.strictEqual(after.users.length, 1, '同じ人のまま');
+  assert.strictEqual(after.invites.length, 0, '2台使うと招待は消える');
+  assert.match(claim(env, invite.code, '花子').error, /この招待リンクは使えません/);
+  // 止めると2台とも使えず、削除すると2台とも使えない
+  post(env, { action: 'setUserDisabled', id: after.users[0].id, disabled: true });
+  assert.match(post(env, { action: 'bootstrap' }, first.token).error, /いまは使えません/);
+  assert.match(post(env, { action: 'bootstrap' }, second.token).error, /いまは使えません/);
+});
+
+test('招待: 1台目の人を削除・停止すると、残りの1台分は使えなくなる', () => {
+  const env = load();
+  const invite = post(env, { action: 'createInvite' });
+  claim(env, invite.code, '花子');
+  const id = post(env, { action: 'listUsers' }).users[0].id;
+  post(env, { action: 'removeUser', id });
+  assert.strictEqual(post(env, { action: 'listUsers' }).invites.length, 0);
+  assert.match(claim(env, invite.code, '花子').error, /この招待リンクは使えません/);
+});
+
+test('招待: 2台分になる前に作られた古い形の招待は、これまでどおり1回で使い切る', () => {
+  const env = load();
+  const invite = post(env, { action: 'createInvite' });
+  const stored = JSON.parse(env.props.INVITES_JSON);
+  delete stored[0].maxUses;
+  delete stored[0].uses;
+  env.props.INVITES_JSON = JSON.stringify(stored);
+  assert.strictEqual(claim(env, invite.code, '花子').ok, true);
+  assert.strictEqual(post(env, { action: 'listUsers' }).invites.length, 0);
+  assert.match(claim(env, invite.code, '花子').error, /この招待リンクは使えません/);
+});
+
+test('招待: 名前を入れると、その人の合言葉が返る（返すのは合言葉と名前だけ）', () => {
   const env = load();
   env.context.Utilities.getUuid = () => require('node:crypto').randomUUID();
   const invite = post(env, { action: 'createInvite' });
@@ -2268,11 +2325,9 @@ test('招待: 名前を入れると、その人の合言葉が返り、招待は
   const boot = post(env, { action: 'bootstrap' }, claimed.token);
   assert.strictEqual(boot.role, 'user');
   assert.strictEqual(boot.userName, '花子');
-  // 同じリンクは2回目は使えない（複数の人がいるチャットに送られても、先の1人だけ）
-  assert.match(claim(env, invite.code, '太郎').error, /この招待リンクは使えません/);
-  const listed = post(env, { action: 'listUsers' });
-  assert.strictEqual(listed.invites.length, 0);
-  assert.deepStrictEqual(listed.users.map((u) => u.name), ['花子']);
+  // 別の名前では、1台目と別の人にはなれない
+  assert.match(claim(env, invite.code, '太郎').error, /同じ名前/);
+  assert.deepStrictEqual(post(env, { action: 'listUsers' }).users.map((u) => u.name), ['花子']);
 });
 
 test('招待: 名前が正しくなければ登録せず、招待は残る（直して同じリンクでやり直せる）', () => {
