@@ -358,7 +358,7 @@
     }
     var applyUrl = String(event.applyUrl || '').trim();
     if (applyUrl) {
-      lines.push(fillTemplate(talk.applyLine || '📝 申込: {url}', { url: applyUrl }));
+      lines.push(fillTemplate(talk.applyLine || '📝 要申し込み: {url}', { url: applyUrl }));
     }
     return lines;
   }
