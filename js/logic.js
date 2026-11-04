@@ -726,6 +726,16 @@
     return 'オンライン会議の URL が入っています（' + hits.join('、') + '）。公開のオープンチャットに載せると、関係のない人が入ってくるおそれがあります。公開してよい URL か確認してください。';
   }
 
+  /**
+   * 本文の中から、「…」で省略された URL（Slack のスマホの共有など）を探して返す純粋関数。
+   * 「ドメイン/…」の形（スラッシュのあとに「…」がある）だけを見る。ふつうの文の「…」は拾わない。
+   * 省略された URL は本文からは復元できないので、数えて知らせるために使う。
+   */
+  function findAbbreviatedUrls(text) {
+    var found = String(text || '').match(/[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}\/[^\s　]*…[^\s　]*/g) || [];
+    return found.filter(function (u, i) { return found.indexOf(u) === i; });
+  }
+
   // ---- 記録の一覧（archive.html） ---------------------------------
 
   /**
@@ -988,6 +998,7 @@
     summaryWarnings: summaryWarnings,
     uncertainDateWarning: uncertainDateWarning,
     meetingUrlWarning: meetingUrlWarning,
+    findAbbreviatedUrls: findAbbreviatedUrls,
     formatYen: formatYen,
     usageSummaryText: usageSummaryText,
     archiveEventLabel: archiveEventLabel,
