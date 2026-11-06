@@ -512,7 +512,7 @@
     }
     var button = $('analyzeButton');
     setBusy(button, true, '整えています…');
-    announce('文章を整えています。10秒ほどかかることがあります');
+    announce('文章を整えています。30秒以上かかることがあります');
     var startedAt = performance.now();
 
     gasPost({
