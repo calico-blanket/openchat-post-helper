@@ -75,7 +75,7 @@ var APP_CONFIG = {
     placeLine: '📍 {place}',
     performersLine: '🎤 出演: {performers}',
     deadlineLine: '⏰ 申込締切: {deadline}',
-    applyLine: '📝 要申し込み: {url}'
+    applyLine: '📝 要申し込み\n{url}'
   },
 
   // 「スレッドにも投稿する」の初期値（入力元ごと。画面でその都度切り替えられる。URL が無いときは常に「する」）
