@@ -177,13 +177,23 @@
     $('publicSheetLink').href = hasPublic ? publicUrl : '#';
     $('publicSheetLinkArea').hidden = !hasPublic;
     $('syncPublicSheetButton').hidden = !hasPublic;
-    $('publicSheetState').textContent = hasPublic
-      ? '保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID とトーク本文は載せません）。内容がずれていると感じたら「作り直す」を押してください。'
-      : 'まだ設定されていません。GAS エディタで関数 createPublicSpreadsheet を1回実行すると作られます（README 参照）。';
+    // 管理者には作り直しの案内と未設定のときの手順を、入力する人には見方だけを出す
+    $('publicSheetState').textContent = isAdmin()
+      ? (hasPublic
+        ? '保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID は載せません）。内容がずれていると感じたら「作り直す」を押してください。'
+        : 'まだ設定されていません。GAS エディタで関数 createPublicSpreadsheet を1回実行すると作られます（README 参照）。')
+      : (hasPublic
+        ? '保存した記録が、表（Google スプレッドシート）にも自動で並びます。見るだけで、表で直しても記録は変わりません。'
+        : 'まだ用意されていません。招待した人に聞いてください。');
     $('usageSummary').textContent = L.usageSummaryText(boot.usageThisMonth) || '今月の概算は、まだありません。';
-    $('archiveState').textContent = boot.archivePublic
-      ? '公開中です。合言葉なしで誰でも読める記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
-      : 'いまは公開していません。公開するには、GAS のスクリプトプロパティ ARCHIVE_PUBLIC を true にし、archive-config.js に GAS の URL を入れます（README 参照）。';
+    // 管理者には公開のしかたまで、入力する人には見方だけを出す
+    $('archiveState').textContent = isAdmin()
+      ? (boot.archivePublic
+        ? '公開中です。合言葉なしで誰でも読める記録の一覧です（ID は出ません）。オープンチャットにはこのページの URL を貼ります。'
+        : 'いまは公開していません。公開するには、GAS のスクリプトプロパティ ARCHIVE_PUBLIC を true にし、archive-config.js に GAS の URL を入れます（README 参照）。')
+      : (boot.archivePublic
+        ? '保存した記録の一覧です。読むだけで、直したり消したりはできません。直すには、アプリの「一覧・検索」で記録を開いてください。'
+        : 'まだ公開されていません。招待した人に聞いてください。');
   }
 
   /** キャッシュがあれば先に使い、裏で最新化する */
