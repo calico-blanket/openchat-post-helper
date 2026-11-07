@@ -368,11 +368,11 @@
         <p id="sheetHelp" class="help">接続できると、ここに保存先のスプレッドシートへのリンクが出ます。開けるのは、シートの共有設定で閲覧を許可された Google アカウントの人だけです（「リンクを知っている全員」にすると、URL を知っている人は誰でも見られます）。</p>
       </section>
 
-      <section data-admin-only aria-labelledby="publicSheetHeading">
+      <section aria-labelledby="publicSheetHeading">
         <h2 id="publicSheetHeading" tabindex="-1">公開用スプレッドシート</h2>
         <p id="publicSheetLinkArea" hidden><a id="publicSheetLink" href="#" target="_blank" rel="noopener noreferrer">公開用スプレッドシートを開く（新しいタブ）</a></p>
-        <p id="publicSheetState" class="help">保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID とトーク本文は載せません）。</p>
-        <button type="button" id="syncPublicSheetButton" class="button secondary" hidden>公開用シートを作り直す</button>
+        <p id="publicSheetState" class="help">保存・更新・削除のたびに、公開用スプレッドシートの「記録一覧」タブを自動で書き直します（ID は載せません）。</p>
+        <p data-admin-only><button type="button" id="syncPublicSheetButton" class="button secondary" hidden>公開用シートを作り直す</button></p>
       </section>
 
       <section data-admin-only aria-labelledby="usageHeading">
