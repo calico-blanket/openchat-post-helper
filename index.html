@@ -201,7 +201,7 @@
           <div class="field">
             <label for="fPostedAt">発信日（元の投稿の日付）</label>
             <input type="date" id="fPostedAt" aria-describedby="fPostedAtHelp">
-            <p id="fPostedAtHelp" class="help">X・Instagram・Threads・Slack は URL から、YouTube は設定してあれば自動で入ります。分からなければ空のままで構いません。記録の一覧では、入っていればこの日付を、空なら登録日を出します。</p>
+            <p id="fPostedAtHelp" class="help">X・Instagram・Threads・Slack は URL から、YouTube は設定してあれば自動で入ります。分からなければ空のままで構いません。記録の一覧には、この日付だけを出します（空なら出しません）。</p>
           </div>
 
           <fieldset class="field event-box" id="eventFields">
@@ -352,7 +352,7 @@
         <ul id="inviteManageList" class="manage-list"></ul>
         <button type="button" id="createInviteButton" class="button secondary">招待リンクを作る</button>
         <div id="inviteResult" class="inline-warning" role="status" hidden>
-          <p>招待リンクを作りました。<strong>1人にだけ</strong>渡してください。最初に開いて名前を登録した1人だけが使えます（7日間有効）。</p>
+          <p>招待リンクを作りました。<strong>1人にだけ</strong>渡してください。その人の端末2台まで使えます（2台目は1台目と同じ名前を入れてもらいます。7日間有効）。</p>
           <label for="inviteLinkField">招待リンク（この画面を閉じると、もう表示できません）</label>
           <input type="text" id="inviteLinkField" readonly>
           <button type="button" id="copyInviteButton" class="button secondary">リンクをコピー</button>
