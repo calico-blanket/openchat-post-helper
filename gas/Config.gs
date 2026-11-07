@@ -152,7 +152,7 @@ var APP_CONFIG = {
     // 載せる列と並び。使える key: savedAt postedAt kind author source category title summary event place
     //   performers deadline joinUrl applyUrl url tags original comment talk
     // 種別（kind）は、カテゴリと取り違えられないよう末尾に置く（見せたくなければ、シートで列を非表示にするか、ここから外す）
-    columns: ['savedAt', 'postedAt', 'category', 'author', 'source', 'title', 'summary', 'event', 'place',
+    columns: ['savedAt', 'postedAt', 'category', 'author', 'source', 'title', 'summary', 'talk', 'event', 'place',
       'performers', 'deadline', 'joinUrl', 'applyUrl', 'url', 'tags', 'original', 'comment', 'kind']
   },
 
