@@ -1529,7 +1529,7 @@ function loadWithPublicSheet(options = {}) {
   return env;
 }
 
-test('公開用シート: 保存すると「記録一覧」タブを新しい順に書き直し、決めた列だけを載せる（ID とトーク本文は載せない）', () => {
+test('公開用シート: 保存すると「記録一覧」タブを新しい順に書き直し、決めた列だけを載せる（ID は載せない。トーク本文は載せる）', () => {
   const env = loadWithPublicSheet();
   post(env, validPost({ url: 'https://example.com/old', title: '古い', memo: 'コメント1' }));
   const r = post(env, validPost({
@@ -1540,7 +1540,7 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.publicSheet)), { ok: true, count: 2 });
   const tab = env.publicTab();
   assert.deepStrictEqual(Array.from(tab.values[0]), [
-    '登録日時', '発信日', 'カテゴリ', '発信者／出演者', 'ソース', 'タイトル', '概略', '開催日時', '場所',
+    '登録日時', '発信日', 'カテゴリ', '発信者／出演者', 'ソース', 'タイトル', '概略', 'トーク本文', '開催日時', '場所',
     '出演者', '申込締切', '参加URL', '申込URL', '元の投稿のURL', 'タグ', 'スレッド詳細（原文）', 'コメント', '種別'
   ]);
   const row = Array.from(tab.values[1]);
@@ -1553,7 +1553,7 @@ test('公開用シート: 保存すると「記録一覧」タブを新しい順
   assert.strictEqual(at('コメント'), 'コメント2');
   assert.strictEqual(Array.from(tab.values[2])[header.indexOf('コメント')], 'コメント1', '2行目が古い方');
   const text = JSON.stringify(tab.values);
-  assert.ok(!text.includes('トーク本文はここ'), 'トーク本文は載せない');
+  assert.strictEqual(at('トーク本文'), 'トーク本文はここ', 'トーク本文は「概略」の次の列に載る');
   assert.ok(!/uuid-/.test(text), 'ID は載せない');
   assert.strictEqual(tab.wrap, 'CLIP', '長い文は折り返さず、行の高さをそろえる');
 });
