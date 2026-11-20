@@ -2206,6 +2206,7 @@ function handleDelete_(body, auth) {
  *   category / kind: 指定したものだけ（空なら全部）
  *   tags: 選んだタグ。tagMode が 'and' ならすべてを持つもの、それ以外（既定）はどれか1つでも持つもの（OR）
  *   offset: 何件目から（PAGE_SIZE 件ずつ）
+ *   sort: 'event' なら開催日の近い順（sortByEventDate_）。それ以外（既定）は登録の新しい順
  */
 function handleSearch_(body, auth) {
   var userNames = auth && auth.role === 'admin' ? userNameMap_() : null;
@@ -2215,11 +2216,14 @@ function handleSearch_(body, auth) {
   var tags = normalizeTagsInput_(body.tags);
   var matchAll = String(body.tagMode || '').toLowerCase() === 'and';
   var offset = Math.max(0, parseInt(body.offset, 10) || 0);
+  var byEvent = String(body.sort || '') === 'event';
 
   var entries = readEntries_(openSheet_());
   var items = [];
   var matched = 0;
   var hasMore = false;
+  // 開催日順のときは、条件に合うものを全部集めて並べ替えてから、offset から PAGE_SIZE 件を切り出す
+  var all = byEvent ? [] : null;
   for (var i = entries.length - 1; i >= 0; i--) {
     var item = entries[i].item;
     if (category && item.category !== category) { continue; }
@@ -2233,12 +2237,46 @@ function handleSearch_(body, auth) {
         .join('\n').toLowerCase();
       if (haystack.indexOf(keyword) === -1) { continue; }
     }
+    if (all) { all.push(item); continue; }
     matched++;
     if (matched <= offset) { continue; }
     if (items.length >= PAGE_SIZE) { hasMore = true; break; }
     items.push(itemForClient_(item, auth, userNames));
   }
+  if (all) {
+    var sorted = sortByEventDate_(all, Utilities.formatDate(new Date(), TIME_ZONE, 'yyyy-MM-dd'));
+    items = sorted.slice(offset, offset + PAGE_SIZE).map(function (it) { return itemForClient_(it, auth, userNames); });
+    hasMore = sorted.length > offset + PAGE_SIZE;
+  }
   return { ok: true, items: items, offset: offset, hasMore: hasMore };
+}
+
+/**
+ * 記録を「開催日の近い順」に並べた新しい配列を返す純粋関数（記録の一覧ページの「開催日の近い順」と同じ並び）。
+ *   1. 今日（today、'YYYY-MM-DD'）以降の開催を、早い順（同じ日は開始時刻の早い順。時刻なしはその日の先頭）
+ *   2. そのあとに、過去の開催を新しい順
+ *   3. 開催日の無い記録は最後（元の並び＝登録の新しい順のまま）
+ * 同じ開催日時どうしは、元の並びを保つ。
+ */
+function sortByEventDate_(items, today) {
+  var keyOf = function (item) {
+    var m = String(item.eventIso || '').match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/);
+    return m ? m[1] + 'T' + (m[2] || '') : '';
+  };
+  var list = (items || []).map(function (item, index) { return { item: item, index: index, key: keyOf(item) }; });
+  list.sort(function (a, b) {
+    var x = a.key;
+    var y = b.key;
+    if (x === y) { return a.index - b.index; }
+    if (!x) { return 1; }
+    if (!y) { return -1; }
+    var c = x < y ? -1 : 1;
+    var xUp = x.slice(0, 10) >= today;
+    var yUp = y.slice(0, 10) >= today;
+    if (xUp !== yUp) { return xUp ? -1 : 1; }
+    return xUp ? c : -c;
+  });
+  return list.map(function (entry) { return entry.item; });
 }
 
 // ---- 公開用スプレッドシート（記録一覧タブ） ---------------------------------

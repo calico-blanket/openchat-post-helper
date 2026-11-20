@@ -528,6 +528,59 @@ test('search: 新しい順・キーワードは原文も対象・カテゴリ/�
   assert.strictEqual(page2.hasMore, false);
 });
 
+test('sortByEventDate_: 今日以降は近い順 → 過去は新しい順 → 開催日なしは最後（同じ日時は元の並び）', () => {
+  const env = load();
+  const items = [
+    { title: '日付なし1', eventIso: '' },
+    { title: '過去・古い', eventIso: '2026-01-10' },
+    { title: '未来・遠い', eventIso: '2026-12-01T10:00+09:00' },
+    { title: '今日・夜', eventIso: '2026-11-20T19:00+09:00/2026-11-20T20:00+09:00' },
+    { title: '過去・新しい', eventIso: '2026-11-19T10:00+09:00' },
+    { title: '今日・時刻なし', eventIso: '2026-11-20' },
+    { title: '日付なし2', eventIso: '' },
+    { title: '未来・近い', eventIso: '2026-11-21T09:00+09:00' },
+    { title: '未来・近い（同じ日時）', eventIso: '2026-11-21T09:00+09:00' }
+  ];
+  const sorted = JSON.parse(JSON.stringify(env.context.sortByEventDate_(items, '2026-11-20')));
+  assert.deepStrictEqual(sorted.map((i) => i.title), [
+    '今日・時刻なし', '今日・夜', '未来・近い', '未来・近い（同じ日時）', '未来・遠い',
+    '過去・新しい', '過去・古い', '日付なし1', '日付なし2'
+  ]);
+  // 元の配列は変えない
+  assert.strictEqual(items[0].title, '日付なし1');
+});
+
+test('search: sort=event なら開催日の近い順に並べてから50件ずつ切り出す（絞り込みとも組み合わせる）', () => {
+  const env = load();
+  post(env, validPost({ url: '', title: '過去', eventIso: '2000-01-01' }));
+  post(env, validPost({ url: '', title: '日付なし', eventIso: '' }));
+  post(env, validPost({ url: '', title: '先の予定・遠い', eventIso: '2099-12-01' }));
+  post(env, validPost({ url: '', title: '先の予定・近い', eventIso: '2099-01-01T10:00+09:00' }));
+  assert.deepStrictEqual(post(env, { action: 'search', sort: 'event' }).items.map((i) => i.title),
+    ['先の予定・近い', '先の予定・遠い', '過去', '日付なし']);
+  // 既定（sort なし・知らない値）は、これまでどおり登録の新しい順
+  assert.deepStrictEqual(post(env, { action: 'search' }).items.map((i) => i.title),
+    ['先の予定・近い', '先の予定・遠い', '日付なし', '過去']);
+  assert.deepStrictEqual(post(env, { action: 'search', sort: 'xxx' }).items.map((i) => i.title),
+    ['先の予定・近い', '先の予定・遠い', '日付なし', '過去']);
+  assert.deepStrictEqual(post(env, { action: 'search', sort: 'event', keyword: '先の予定' }).items.map((i) => i.title),
+    ['先の予定・近い', '先の予定・遠い']);
+  // 50件ずつ: 並べ替えたあとで切り出す（2ページ目の先頭が、1ページ目の続きになる）
+  for (let i = 0; i < 55; i++) {
+    post(env, validPost({ url: '', title: 'm' + i, eventIso: '2098-01-' + String((i % 28) + 1).padStart(2, '0') }));
+  }
+  const page1 = post(env, { action: 'search', sort: 'event' });
+  const page2 = post(env, { action: 'search', sort: 'event', offset: 50 });
+  assert.strictEqual(page1.items.length, 50);
+  assert.strictEqual(page1.hasMore, true);
+  assert.strictEqual(page2.items.length, 9);
+  assert.strictEqual(page2.hasMore, false);
+  const dates = page1.items.concat(page2.items).map((i) => i.eventIso || '~');
+  const upcoming = dates.slice(0, 57);
+  assert.deepStrictEqual(upcoming, upcoming.slice().sort());
+  assert.deepStrictEqual(page2.items.slice(-2).map((i) => i.title), ['過去', '日付なし']);
+});
+
 // ---- カテゴリ・タグ管理 ----------------------------------------------
 
 test('カテゴリ・タグ: 追加・重複拒否・削除・並べ替え（集合が違えば拒否）・最後のカテゴリは消せない', () => {

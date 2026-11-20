@@ -288,6 +288,14 @@
             <select id="searchKind"><option value="">すべて</option></select>
           </div>
         </div>
+        <div class="field">
+          <label for="searchSort">並び順</label>
+          <select id="searchSort" aria-describedby="searchSortHelp">
+            <option value="saved">登録の新しい順</option>
+            <option value="event">開催日の近い順</option>
+          </select>
+          <p id="searchSortHelp" class="help">「開催日の近い順」は、今日以降の開催が近い順に上から並び、そのあとに終わった開催、開催日の無い記録の順に出ます。</p>
+        </div>
         <details class="field">
           <summary>タグで絞り込む</summary>
           <div id="searchTagGroup" class="check-group"></div>

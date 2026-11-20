@@ -27,7 +27,7 @@ GET は「記録の一覧」（`?action=archive`）だけを受け付けます�
 | `save` | 下記の投稿データ ＋ `force?` | `id` `savedAt`。同じ URL があれば `{ ok:false, duplicate:{id,title,savedAt} }` |
 | `update` | `id` ＋ 投稿データ ＋ `force?` | `id`（登録日時と ID は変えない） |
 | `delete` | `id` | `id` |
-| `search` | `keyword?` `category?` `kind?` `tags?: []` `tagMode?` `offset?` | `items` `hasMore`（新しい順に 50 件ずつ。カテゴリ横断。`tags` は既定がどれか1つでも持つ（OR）、`tagMode: "and"` ですべて持つもの） |
+| `search` | `keyword?` `category?` `kind?` `tags?: []` `tagMode?` `offset?` `sort?` | `items` `hasMore`（新しい順に 50 件ずつ。カテゴリ横断。`tags` は既定がどれか1つでも持つ（OR）、`tagMode: "and"` ですべて持つもの。`sort: "event"` なら開催日の近い順（今日以降の開催が近い順 → 過去の開催の新しい順 → 開催日なし。日本時間の今日で判定）に並べてから 50 件ずつ） |
 | `addCategory` / `removeCategory` | `name` | `categories` |
 | `reorderCategories` | `categories: []` | `categories` |
 | `addTag` / `removeTag` | `name` | `tags` |

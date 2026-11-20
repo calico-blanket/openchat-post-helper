@@ -1207,7 +1207,9 @@
         category: $('searchCategory').value,
         kind: $('searchKind').value,
         tags: Array.prototype.map.call(document.querySelectorAll('input[name="searchTag"]:checked'), function (i) { return i.value; }),
-        tagMode: (document.querySelector('input[name="searchTagMode"]:checked') || {}).value === 'and' ? 'and' : 'or'
+        tagMode: (document.querySelector('input[name="searchTagMode"]:checked') || {}).value === 'and' ? 'and' : 'or',
+        // 'event' なら開催日の近い順（並べ替えは GAS が行う。古い GAS は無視して登録順で返す）
+        sort: $('searchSort').value === 'event' ? 'event' : 'saved'
       };
       state.list.offset = 0;
       state.list.items = [];
@@ -1239,7 +1241,11 @@
     state.list.items.forEach(function (item, index) {
       var ev = L.parseEventIso(item.eventIso);
       var meta = [item.savedAt, kindLabel(item.kind), item.category];
-      if (ev.date) { meta.push('開催 ' + L.formatDateJa(ev.date)); }
+      if (ev.date) {
+        // 開催日の近い順のときは、開催日を先頭に出す（並びの理由が分かるように）
+        var eventText = '開催 ' + L.formatDateJa(ev.date);
+        if (state.list.query && state.list.query.sort === 'event') { meta.unshift(eventText); } else { meta.push(eventText); }
+      }
       var heading = el('h2', { className: 'item-title', text: item.title, tabindex: '-1' });
       if (appendedCount && index === firstNewIndex) { firstNewHeading = heading; }
       var tagList = el('ul', { className: 'tag-list', 'aria-label': 'タグ' });
